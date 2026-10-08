@@ -63,6 +63,32 @@ span[class*="material"] {
     margin-right: 6px !important;
 }
 
+/* Column equal height container alignment */
+div[data-testid="stColumn"] {
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    height: 100% !important;
+}
+
+div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div.element-container {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+}
+
+div[data-testid="stColumn"] .stMarkdown {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    height: 100% !important;
+}
+
 /* Glassmorphism KPI Metric Cards */
 .metric-card {
     background: rgba(15, 23, 42, 0.75);
@@ -70,10 +96,16 @@ span[class*="material"] {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-radius: 14px;
-    padding: 18px 20px;
+    padding: 16px 18px;
     margin-bottom: 12px;
     box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.35);
     transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    min-height: 185px !important;
+    height: 185px !important;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-sizing: border-box;
 }
 
 .metric-card:hover {
@@ -83,66 +115,103 @@ span[class*="material"] {
 }
 
 .metric-title {
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     font-weight: 600;
     color: #94a3b8;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 6px;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
     display: flex;
     align-items: center;
     gap: 6px;
+    min-height: 22px;
+    line-height: 1.25;
+}
+
+.metric-body {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    margin: 4px 0;
+    width: 100%;
+}
+
+.metric-body-center {
+    justify-content: center !important;
 }
 
 .metric-value-danger {
-    font-size: 2.1rem;
+    font-size: clamp(1.2rem, 1.55vw, 1.7rem);
     font-weight: 800;
     color: #f87171;
-    line-height: 1.1;
+    line-height: 1.15;
     font-feature-settings: "tnum";
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.01em;
 }
 
 .metric-value-warning {
-    font-size: 2.1rem;
+    font-size: clamp(1.2rem, 1.55vw, 1.7rem);
     font-weight: 800;
     color: #fbbf24;
-    line-height: 1.1;
+    line-height: 1.15;
     font-feature-settings: "tnum";
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.01em;
 }
 
 .metric-value-success {
-    font-size: 2.1rem;
+    font-size: clamp(1.2rem, 1.55vw, 1.7rem);
     font-weight: 800;
     color: #34d399;
-    line-height: 1.1;
+    line-height: 1.15;
     font-feature-settings: "tnum";
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.01em;
 }
 
 .metric-value-info {
-    font-size: 2.1rem;
+    font-size: clamp(1.2rem, 1.55vw, 1.7rem);
     font-weight: 800;
     color: #38bdf8;
-    line-height: 1.1;
+    line-height: 1.15;
     font-feature-settings: "tnum";
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.01em;
 }
 
 .metric-subtext {
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     color: #64748b;
-    margin-top: 6px;
+    margin-top: 4px;
     display: block;
+    min-height: 2.3em;
+    line-height: 1.25;
+    white-space: normal !important;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 /* Status Badges */
 .badge-pill {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 14px;
+    gap: 8px;
+    padding: 6px 16px;
     border-radius: 9999px;
-    font-size: 0.82rem;
+    font-size: 0.95rem;
     font-weight: 700;
-    letter-spacing: 0.025em;
+    letter-spacing: 0.02em;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .badge-high {
@@ -173,6 +242,23 @@ span[class*="material"] {
     display: flex;
     flex-direction: column;
     gap: 2px;
+}
+
+/* Modern Glassmorphic Container for Plotly Charts */
+div[data-testid="stPlotlyChart"] {
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 14px;
+    padding: 12px 14px;
+    box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.35);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+div[data-testid="stPlotlyChart"]:hover {
+    border-color: rgba(56, 189, 248, 0.3);
+    box-shadow: 0 12px 28px -4px rgba(56, 189, 248, 0.12);
 }
 
 /* Strategic Action / Copilot Card */

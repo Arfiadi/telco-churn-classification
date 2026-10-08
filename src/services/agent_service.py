@@ -24,12 +24,12 @@ logger = logging.getLogger(__name__)
 
 # Model Fallback Hierarchy (Free Tier on OpenRouter)
 DEFAULT_MODEL_LADDER = [
-    os.getenv("OPENROUTER_MODEL", "google/gemma-4-31b-it:free"),
+    os.getenv("OPENROUTER_MODEL", "openrouter/free"),
+    "openrouter/free",
+    "google/gemma-4-31b-it:free",
     "google/gemma-4-26b-a4b-it:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
     "liquid/lfm-2.5-2.6b:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemini-2.0-flash-exp:free",
 ]
 
 SYSTEM_PROMPT = """Anda adalah "Telco Retention Copilot", asisten AI strategis tingkat eksekutif untuk tim Customer Success PT Telekomunikasi.
@@ -38,18 +38,18 @@ Tugas Anda adalah merumuskan rencana retensi presisi untuk pelanggan yang teride
 ATURAN BISNIS & GUARDRAILS WAJIB (PELANGGARAN AKAN MENGAKIBATKAN REJEKSI SISTEM):
 1. ANGGARAN KETAT: Total biaya penawaran (incentive_cost_usd) TIDAK BOLEH melebihi $20.00. Anda dilarang memberikan diskon atau insentif yang melebihi pagu ini.
 2. DETERMINISTIK & DATA-DRIVEN: Anda WAJIB memanggil tool `simulate_churn_impact` untuk menguji penurunan probabilitas churn sebelum menyimpulkan rekomendasi paket. JANGAN MENEBAK probabilitas!
-3. TARGET SHAP DRIVER: Rencana intervensi harus secara langsung mengatasi faktor risiko teratas (top risk drivers) dari analisis SHAP pelanggan.
-4. NASKAH KOMUNIKASI: Tuliskan `outreach_script` dalam bahasa yang santun, personal, dan empatik, mengakui nilai hubungan pelanggan tanpa menyebutkan kata "kami mendeteksi Anda akan churn".
+3. TARGET SHAP DRIVER: Rencana intervensi harus secara langsung mengatasi faktor risiko teratas (top risk drivers) dari analisis SHAP pelanggan. JANGAN PERNAH menawarkan migrasi atau downgrade kontrak kepada pelanggan yang sudah terikat kontrak 1 tahun atau 2 tahun.
+4. NASKAH KOMUNIKASI & BAHASA: Tuliskan `outreach_script` dan `root_cause_diagnosis` seluruhnya dalam Bahasa Indonesia yang santun, personal, dan empatik, mengakui nilai hubungan pelanggan tanpa menyebutkan kata "kami mendeteksi Anda akan churn".
 5. OUTPUT TERSTRUKTUR: Seluruh respon akhir harus berupa JSON valid yang mematuhi skema berikut secara eksak:
 ```json
 {
-  "root_cause_diagnosis": "<Ringkasan 2 kalimat akar masalah>",
+  "root_cause_diagnosis": "<Ringkasan 2 kalimat akar masalah dalam Bahasa Indonesia>",
   "recommended_package_name": "<Nama paket retensi>",
   "incentive_cost_usd": <Biaya <= 20.0>,
   "simulated_churn_prob": <Probabilitas baru hasil simulate_churn_impact>,
   "risk_reduction_pct": <Persentase penurunan risiko>,
   "projected_net_value_usd": <Nilai keuntungan bersih>,
-  "outreach_script": "<Naskah percakapan empati>",
+  "outreach_script": "<Naskah percakapan empati dalam Bahasa Indonesia>",
   "confidence_level": "HIGH"
 }
 ```
@@ -118,10 +118,18 @@ class AgentService:
     ):
         self.force_fallback = force_fallback
         if force_fallback:
+            self.api_provider = "none"
             self.api_key = None
+            self.model_ladder = []
+        elif os.getenv("GEMINI_API_KEY"):
+            self.api_provider = "gemini"
+            self.api_key = os.getenv("GEMINI_API_KEY")
+            self.model_ladder = ["gemini-3.8-flash", "gemini-3.8-flash-8b", "gemini-3.1-flash"]
         else:
+            self.api_provider = "openrouter"
             self.api_key = api_key if api_key is not None else os.getenv("OPENROUTER_API_KEY")
-        self.model_ladder = model_ladder or DEFAULT_MODEL_LADDER
+            self.model_ladder = model_ladder or DEFAULT_MODEL_LADDER
+        
         self.heuristic_engine = HeuristicRetentionEngine()
         self.shap_service = get_shap_service()
 
@@ -129,14 +137,21 @@ class AgentService:
         """Creates OpenRouter-compatible OpenAI client if API key is present."""
         if self.force_fallback or not self.api_key or self.api_key.startswith("your_"):
             return None
-        return OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=self.api_key,
-            default_headers={
-                "HTTP-Referer": "https://github.com/telco-churn-retention-copilot",
-                "X-Title": "Telco Churn Intelligent Retention Platform",
-            },
-        )
+            
+        if self.api_provider == "gemini":
+            return OpenAI(
+                api_key=self.api_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+            )
+        else:
+            return OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=self.api_key,
+                default_headers={
+                    "HTTP-Referer": "https://github.com/telco-churn-retention-copilot",
+                    "X-Title": "Telco Churn Intelligent Retention Platform",
+                },
+            )
 
     def _execute_tool(self, name: str, args: dict[str, Any], customer: CustomerProfile) -> dict[str, Any]:
         """Safely executes a local deterministic tool call requested by the agent."""
@@ -197,11 +212,11 @@ FAKTOR PELINDUNG UTAMA (TOP SHAP RETENTION ANCHORS):
 {chr(10).join(top_anchors)}
 
 INSTRUKSI:
-1. Panggil `get_eligible_retention_offers` untuk melihat opsi paket retensi yang disetujui.
-2. Pilih paket yang paling tepat mengatasi pemicu risiko teratas.
+1. Panggil `get_eligible_retention_offers` untuk melihat opsi paket retensi yang disetujui. JANGAN PERNAH menawarkan migrasi/downgrade kontrak jika pelanggan sudah memiliki kontrak 1 tahun atau 2 tahun.
+2. Pilih paket yang paling tepat mengatasi pemicu risiko teratas. Jika pelanggan berisiko rendah, prioritaskan program apresiasi loyalitas.
 3. Panggil `simulate_churn_impact` untuk menguji paket tersebut pada pipeline ML.
 4. Panggil `calculate_retention_roi` untuk memverifikasi keuntungan finansial.
-5. Kembalikan respons akhir dalam format JSON eksak sesuai skema RetentionPlan.
+5. Kembalikan respons akhir dalam format JSON eksak sesuai skema RetentionPlan. Seluruh diagnosis dan naskah outreach wajib dalam Bahasa Indonesia.
 """
 
         # Try each model in the fallback ladder
@@ -245,13 +260,15 @@ INSTRUKSI:
                             normalized = self._normalize_plan_dict(plan_dict, customer, diagnostic)
                             if normalized:
                                 return RetentionPlan(**normalized)
+                        
+                        logger.warning(f"Failed to parse or normalize JSON from {model_name}. Raw content: {content}")
                         break
 
             except Exception as e:
                 logger.warning(f"Error querying model {model_name}: {e}. Trying next model in ladder.")
                 continue
 
-        logger.warning("All OpenRouter models in ladder failed or were rate-limited. Falling back to heuristic engine.")
+        logger.warning("All configured LLM models in ladder failed or were rate-limited. Falling back to heuristic engine.")
         return self.heuristic_engine.generate_plan(customer, diagnostic)
 
     def _normalize_plan_dict(
@@ -305,12 +322,16 @@ INSTRUKSI:
             normalized["incentive_cost_usd"] = 15.00
 
         # Numeric conversions
-        try:
-            normalized["simulated_churn_prob"] = float(normalized.get("simulated_churn_prob", 0.35))
-            normalized["risk_reduction_pct"] = float(normalized.get("risk_reduction_pct", 30.0))
-            normalized["projected_net_value_usd"] = float(normalized.get("projected_net_value_usd", 50.0))
-        except (ValueError, TypeError):
-            return None
+        def _safe_float(val, default):
+            if isinstance(val, (int, float)): return float(val)
+            try:
+                return float(str(val).replace('%', '').replace('$', '').replace(',', '').strip())
+            except (ValueError, TypeError):
+                return default
+
+        normalized["simulated_churn_prob"] = _safe_float(normalized.get("simulated_churn_prob"), 0.35)
+        normalized["risk_reduction_pct"] = _safe_float(normalized.get("risk_reduction_pct"), 30.0)
+        normalized["projected_net_value_usd"] = _safe_float(normalized.get("projected_net_value_usd"), 50.0)
 
         # Confidence level regex enforcement
         conf = str(normalized.get("confidence_level", "HIGH")).upper()
@@ -318,7 +339,7 @@ INSTRUKSI:
             conf = "HIGH"
         normalized["confidence_level"] = conf
 
-        normalized["generation_source"] = "OPENROUTER_AGENT"
+        normalized["generation_source"] = f"{self.api_provider.upper()}_AGENT"
         return normalized
 
     def _extract_json(self, text: str) -> Optional[dict[str, Any]]:

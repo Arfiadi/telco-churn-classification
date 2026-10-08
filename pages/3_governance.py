@@ -54,7 +54,7 @@ with mg1:
     render_metric_card(
         "🎯 Discriminative ROC-AUC",
         "0.8447",
-        "LightGBM Bayesian Opt (Holdout)",
+        "LightGBM Bayesian Opt",
         color_class="metric-value-info",
     )
 with mg2:
@@ -74,7 +74,7 @@ with mg3:
 with mg4:
     render_metric_card(
         "📡 Status Integritas & Drift",
-        "✅ Low Drift",
+        "Low Drift",
         "Audit Baseline: Normal",
         color_class="metric-value-success",
     )
@@ -150,8 +150,8 @@ fig_gov.update_layout(
         range=[0, 105],
         gridcolor="rgba(0, 0, 0, 0)",
     ),
-    paper_bgcolor="rgba(15, 23, 42, 0.6)",
-    plot_bgcolor="rgba(15, 23, 42, 0.3)",
+    paper_bgcolor="rgba(0, 0, 0, 0)",
+    plot_bgcolor="rgba(0, 0, 0, 0)",
     legend=dict(
         x=0.02,
         y=0.98,

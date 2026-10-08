@@ -3,7 +3,12 @@
 Main Entrypoint and Modern Multi-Page Navigation Hub.
 """
 
+import warnings
 import streamlit as st
+
+# Suppress external library warnings (e.g., from SHAP)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 
 # Global App Configuration
 st.set_page_config(

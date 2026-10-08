@@ -80,6 +80,13 @@ class CustomerDiagnostic(BaseModel):
     top_risk_drivers: list[SHAPFactor]
     top_retention_anchors: list[SHAPFactor]
 
+    @field_validator("customer", mode="before")
+    @classmethod
+    def coerce_customer(cls, v: Any) -> Any:
+        if hasattr(v, "model_dump"):
+            return v.model_dump()
+        return v
+
 
 class RetentionPerk(BaseModel):
     """

@@ -44,6 +44,14 @@ RETENTION_CATALOG: list[RetentionPerk] = [
         feature_patch={"DeviceProtection": "Yes"},
         target_drivers=["DeviceProtection_No", "DeviceProtection"],
     ),
+    RetentionPerk(
+        perk_id="PERK-LOYALTY-VIP",
+        name="VIP Loyalty Appreciation",
+        description="Apresiasi pelanggan setia: Kupon streaming gratis dan prioritas antrean CS (Biaya: $0).",
+        cost_usd=0.00,
+        feature_patch={},
+        target_drivers=["Contract_Two year", "Contract_One year", "tenure"],
+    ),
 ]
 
 
@@ -56,12 +64,24 @@ def get_eligible_retention_offers(
     and relevant to the customer's active features.
     """
     eligible = []
+    cust_dict = customer_profile.model_dump()
     for perk in RETENTION_CATALOG:
         if perk.cost_usd > max_budget_usd:
             continue
 
+        # Prevent contract downgrade: If customer already has 'One year' or 'Two year',
+        # contract migration to 'One year' is not an eligible retention offer.
+        if perk.perk_id == "PERK-CONTRACT-MIGRATE" and cust_dict.get("Contract") != "Month-to-month":
+            continue
+
+        # For perks with empty feature patches (e.g. VIP loyalty appreciation),
+        # only offer to contracted or long-tenure customers
+        if not perk.feature_patch:
+            if cust_dict.get("Contract") in ["One year", "Two year"] or int(cust_dict.get("tenure", 0)) >= 12:
+                eligible.append(perk)
+            continue
+
         # Check if perk applies a real modification to the customer
-        cust_dict = customer_profile.model_dump()
         is_relevant = False
         for k, v in perk.feature_patch.items():
             if cust_dict.get(k) != v:

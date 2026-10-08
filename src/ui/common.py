@@ -39,10 +39,6 @@ def render_sidebar():
         st.divider()
 
         st.subheader("⚙️ Status Sistem ML")
-        st.markdown("**Core Model:** LightGBM Bayesian Opt")
-        st.markdown("**Holdout ROC-AUC:** `0.8447`")
-        st.markdown("**Ambang Optimal:** $\\tau^* = 0.39$")
-
         # API Connection Badge
         client_test = agent_svc._get_client()
         if client_test is not None:
@@ -66,19 +62,23 @@ def render_sidebar():
             key="selected_persona_name",
         )
 
-        st.divider()
-        st.subheader("📊 Kalibrasi Threshold")
-        custom_threshold = st.slider(
-            "Decision Threshold (Tau)",
-            min_value=0.10,
-            max_value=0.90,
-            value=0.39,
-            step=0.01,
-            key="custom_threshold",
-            help="Probabilitas di atas ambang ini memicu aksi retensi (INTERVENE). Nilai optimal finansial = 0.39.",
-        )
-
         st.caption("Pagu Anggaran Maksimal: **$20.00 / pelanggan**")
+
+        st.divider()
+
+        with st.expander("⚙️ Parameter Teknis & Governance ML", expanded=False):
+            st.markdown("**Core Model:** LightGBM Bayesian Opt")
+            st.markdown("**Holdout ROC-AUC:** `0.8447`")
+            st.markdown("**Ambang Finansial:** $\\tau^* = 0.39$")
+            custom_threshold = st.slider(
+                "Decision Threshold (Tau)",
+                min_value=0.10,
+                max_value=0.90,
+                value=0.39,
+                step=0.01,
+                key="custom_threshold",
+                help="Probabilitas di atas ambang ini memicu aksi retensi (INTERVENE). Nilai optimal finansial = 0.39.",
+            )
 
     # Match selected profile if persona chosen
     preset_profile = None
@@ -89,3 +89,51 @@ def render_sidebar():
             preset_profile = matched[0]["profile"]
 
     return custom_threshold, preset_profile, selected_persona
+
+
+def humanize_feature_name(raw_name: str) -> str:
+    """Translates raw pipeline feature encoding names into clean, readable business labels."""
+    name = raw_name.split("__")[-1].strip()
+    mapping = {
+        "Contract_Month-to-month": "Kontrak Bulanan",
+        "Contract_One year": "Kontrak 1 Tahun",
+        "Contract_Two year": "Kontrak 2 Tahun",
+        "tenure": "Masa Langganan (Tenure)",
+        "MonthlyCharges": "Tagihan Bulanan",
+        "TotalCharges": "Total Pengeluaran",
+        "OnlineSecurity_No": "Tanpa Online Security",
+        "OnlineSecurity_Yes": "Online Security Aktif",
+        "OnlineSecurity_No internet service": "Tanpa Layanan Internet",
+        "TechSupport_No": "Tanpa Tech Support",
+        "TechSupport_Yes": "Tech Support Aktif",
+        "TechSupport_No internet service": "Tanpa Layanan Internet",
+        "InternetService_Fiber optic": "Internet Fiber Optic",
+        "InternetService_DSL": "Internet DSL",
+        "InternetService_No": "Tanpa Layanan Internet",
+        "PaymentMethod_Electronic check": "Bayar via Electronic Check",
+        "PaymentMethod_Mailed check": "Bayar via Mailed Check",
+        "PaymentMethod_Bank transfer (automatic)": "Transfer Bank Otomatis",
+        "PaymentMethod_Credit card (automatic)": "Kartu Kredit Otomatis",
+        "PaperlessBilling_Yes": "Tagihan Digital (Paperless)",
+        "PaperlessBilling_No": "Tagihan Manual (Kertas)",
+        "MultipleLines_Yes": "Multiple Lines Aktif",
+        "MultipleLines_No": "Tanpa Multiple Lines",
+        "MultipleLines_No phone service": "Tanpa Saluran Telepon",
+        "OnlineBackup_No": "Tanpa Online Backup",
+        "OnlineBackup_Yes": "Online Backup Aktif",
+        "DeviceProtection_No": "Tanpa Proteksi Perangkat",
+        "DeviceProtection_Yes": "Proteksi Perangkat Aktif",
+        "StreamingTV_Yes": "Streaming TV Aktif",
+        "StreamingTV_No": "Tanpa Streaming TV",
+        "StreamingMovies_Yes": "Streaming Movies Aktif",
+        "StreamingMovies_No": "Tanpa Streaming Movies",
+        "SeniorCitizen_0": "Bukan Lansia (<65 thn)",
+        "SeniorCitizen_1": "Warga Senior (Lansia)",
+        "Partner_No": "Belum Berkeluarga",
+        "Partner_Yes": "Memiliki Pasangan",
+        "Dependents_No": "Tanpa Tanggungan",
+        "Dependents_Yes": "Memiliki Tanggungan",
+        "PhoneService_Yes": "Layanan Telepon Aktif",
+        "PhoneService_No": "Tanpa Layanan Telepon",
+    }
+    return mapping.get(name, name.replace("_", " "))

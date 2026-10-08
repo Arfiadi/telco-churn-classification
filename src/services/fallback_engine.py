@@ -66,6 +66,10 @@ class HeuristicRetentionEngine:
             matched = [p for p in eligible_offers if p.perk_id == "PERK-DEVICE-PROTECT"]
             if matched:
                 selected_perk = matched[0]
+        elif customer.Contract in ["One year", "Two year"]:
+            matched = [p for p in eligible_offers if p.perk_id == "PERK-LOYALTY-VIP"]
+            if matched:
+                selected_perk = matched[0]
 
         # Deterministic ML what-if simulation via local pipeline
         sim_res = simulate_churn_impact(customer, selected_perk.feature_patch)
@@ -79,23 +83,40 @@ class HeuristicRetentionEngine:
         )
 
         # Root cause 2-sentence synthesis
-        root_cause = (
-            f"Pelanggan menunjukkan sensitivitas tinggi terhadap faktor {risk_summary_text} dengan probabilitas "
-            f"churn baseline sebesar {sim_res['baseline_churn_prob'] * 100:.1f}%. "
-            f"Ketiadaan komitmen jangka panjang atau layanan pendukung menjadi pemicu utama potensi penghentian layanan."
-        )
+        if not diagnostic.is_at_risk or sim_res["baseline_churn_prob"] < 0.20:
+            root_cause = (
+                f"Pelanggan menunjukkan profil loyalitas stabil dengan probabilitas churn baseline rendah "
+                f"({sim_res['baseline_churn_prob'] * 100:.1f}%). "
+                f"Faktor komitmen kontrak ({customer.Contract}) dan masa langganan ({customer.tenure} bulan) "
+                f"menjadi penahan retensi yang kuat, sehingga intervensi difokuskan pada program apresiasi loyalitas."
+            )
+        else:
+            root_cause = (
+                f"Pelanggan menunjukkan sensitivitas tinggi terhadap faktor {risk_summary_text} dengan probabilitas "
+                f"churn baseline sebesar {sim_res['baseline_churn_prob'] * 100:.1f}%. "
+                f"Ketiadaan komitmen jangka panjang atau layanan pendukung menjadi pemicu utama potensi penghentian layanan."
+            )
 
         # Empathetic outreach copywriting tailored to selected package
         cust_id = customer.customer_id or "Pelanggan Setia"
-        outreach_script = (
-            f"Halo Bapak/Ibu {cust_id}, terima kasih atas kepercayaan Anda telah bersama kami selama "
-            f"{customer.tenure} bulan. Sebagai bentuk apresiasi loyalitas Anda, kami ingin memberikan penawaran istimewa "
-            f"eksklusif '{selected_perk.name}'. Melalui program ini, Anda berhak menikmati {selected_perk.description} "
-            f"tanpa ada biaya tambahan di awal. Kami ingin memastikan pengalaman telekomunikasi Anda selalu nyaman dan bebas kendala. "
-            f"Boleh kami bantu aktifkan paket apresiasi ini sekarang?"
-        )
+        if not diagnostic.is_at_risk or sim_res["baseline_churn_prob"] < 0.20:
+            outreach_script = (
+                f"Halo Bapak/Ibu {cust_id}, terima kasih banyak atas kesetiaan Anda menggunakan layanan kami selama "
+                f"{customer.tenure} bulan dengan kontrak {customer.Contract}. Sebagai wujud apresiasi tulus kami, "
+                f"kami menghadirkan program istimewa '{selected_perk.name}'. Melalui program ini, Anda dapat menikmati "
+                f"{selected_perk.description} sebagai bentuk terima kasih kami. Apakah ada hal lain yang dapat kami bantu "
+                f"untuk memaksimalkan kenyamanan layanan Anda hari ini?"
+            )
+        else:
+            outreach_script = (
+                f"Halo Bapak/Ibu {cust_id}, terima kasih atas kepercayaan Anda telah bersama kami selama "
+                f"{customer.tenure} bulan. Sebagai bentuk apresiasi loyalitas Anda, kami ingin memberikan penawaran istimewa "
+                f"eksklusif '{selected_perk.name}'. Melalui program ini, Anda berhak menikmati {selected_perk.description} "
+                f"tanpa ada biaya tambahan di awal. Kami ingin memastikan pengalaman telekomunikasi Anda selalu nyaman dan bebas kendala. "
+                f"Boleh kami bantu aktifkan paket apresiasi ini sekarang?"
+            )
 
-        confidence = "HIGH" if sim_res["relative_drop_pct"] >= 25.0 else ("MEDIUM" if sim_res["relative_drop_pct"] >= 10.0 else "LOW")
+        confidence = "HIGH" if (sim_res["relative_drop_pct"] >= 25.0 or not diagnostic.is_at_risk) else ("MEDIUM" if sim_res["relative_drop_pct"] >= 10.0 else "LOW")
 
         return RetentionPlan(
             root_cause_diagnosis=root_cause,

@@ -25,9 +25,11 @@ with col_btn1:
 uploaded_file = st.file_uploader("Atau unggah file CSV pelanggan:", type=["csv"], key="batch_file_uploader")
 
 df_to_process = None
+
 if uploaded_file is not None:
     try:
         df_to_process = pd.read_csv(uploaded_file)
+        st.session_state.batch_df = df_to_process
         st.success(f"Berhasil memuat file dengan {len(df_to_process)} baris.")
     except Exception as e:
         st.error(f"Gagal membaca file CSV: {e}")
@@ -35,9 +37,12 @@ elif use_sample:
     raw_csv_path = Path("data/WA_Fn-UseC_-Telco-Customer-Churn.csv")
     if raw_csv_path.exists():
         df_to_process = pd.read_csv(raw_csv_path).head(50)
+        st.session_state.batch_df = df_to_process
         st.info("Memuat 50 baris pertama dari dataset Telco Churn.")
     else:
         st.error("File data sampel tidak ditemukan di path data/WA_Fn-UseC_-Telco-Customer-Churn.csv.")
+elif "batch_df" in st.session_state:
+    df_to_process = st.session_state.batch_df
 
 if df_to_process is not None:
     with st.spinner("Menjalankan inferensi LightGBM batch & menyusun antrean prioritas..."):
