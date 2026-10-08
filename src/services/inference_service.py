@@ -45,7 +45,7 @@ class InferenceService:
         """
         Converts customer input into standard cleaned DataFrame for pipeline ingestion.
         """
-        if isinstance(data, CustomerProfile):
+        if isinstance(data, CustomerProfile) or (hasattr(data, "model_dump") and callable(getattr(data, "model_dump", None))):
             df = pd.DataFrame([data.model_dump()])
         elif isinstance(data, dict):
             df = pd.DataFrame([data])

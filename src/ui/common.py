@@ -28,17 +28,8 @@ def load_personas():
     return []
 
 
-def init_session_state():
-    """Initialize default session state keys."""
-    if "custom_threshold" not in st.session_state:
-        st.session_state.custom_threshold = 0.39
-    if "selected_persona_name" not in st.session_state:
-        st.session_state.selected_persona_name = "Custom Input"
-
-
 def render_sidebar():
     """Render the standard sidebar navigation and configuration widgets."""
-    init_session_state()
     _, _, agent_svc = load_services()
     personas_data = load_personas()
 
@@ -65,12 +56,8 @@ def render_sidebar():
         persona_options = ["Custom Input"] + [
             f"{p['persona_id']}: {p['persona_name']}" for p in personas_data
         ]
-        
-        default_index = 0
-        if st.session_state.selected_persona_name in persona_options:
-            default_index = persona_options.index(st.session_state.selected_persona_name)
-        elif personas_data:
-            default_index = 1
+
+        default_index = 1 if personas_data else 0
 
         selected_persona = st.selectbox(
             "Pilih Persona Evaluasi:",
@@ -81,11 +68,11 @@ def render_sidebar():
 
         st.divider()
         st.subheader("📊 Kalibrasi Threshold")
-        st.slider(
+        custom_threshold = st.slider(
             "Decision Threshold (Tau)",
             min_value=0.10,
             max_value=0.90,
-            value=st.session_state.custom_threshold,
+            value=0.39,
             step=0.01,
             key="custom_threshold",
             help="Probabilitas di atas ambang ini memicu aksi retensi (INTERVENE). Nilai optimal finansial = 0.39.",
@@ -101,4 +88,4 @@ def render_sidebar():
         if matched:
             preset_profile = matched[0]["profile"]
 
-    return st.session_state.custom_threshold, preset_profile, selected_persona
+    return custom_threshold, preset_profile, selected_persona

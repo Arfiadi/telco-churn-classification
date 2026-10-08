@@ -84,7 +84,7 @@ class SHAPService:
         # Ensure profile schema validation
         if isinstance(customer, dict):
             profile = CustomerProfile(**customer)
-        elif isinstance(customer, CustomerProfile):
+        elif isinstance(customer, CustomerProfile) or hasattr(customer, "model_dump"):
             profile = customer
         else:
             raise ValueError(f"Invalid customer type: {type(customer)}")
