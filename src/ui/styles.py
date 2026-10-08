@@ -5,9 +5,62 @@ import streamlit as st
 CUSTOM_CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 
-html, body, [class*="css"], [class*="st-"] {
+/* Base typography for application shell and content */
+html, body, .stApp, [data-testid="stAppViewContainer"] {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Ensure code elements use monospaced typography */
+code, pre, .stCodeBlock {
+    font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* CRITICAL FIX: Strictly protect and enforce Material Symbols / Icons font */
+/* Never allow custom typography to override Streamlit internal ligature icons */
+[data-testid="stIconMaterial"],
+[data-testid*="Icon"],
+[data-testid="stSidebarCollapseButton"] span,
+[data-testid="stExpanderStepChevron"] span,
+[data-testid="stExpanderIcon"] span,
+.material-symbols-rounded,
+.material-symbols-outlined,
+.material-symbols-sharp,
+.material-icons,
+[class*="material-symbols"],
+[class*="material-icons"],
+i[class*="material"],
+span[class*="material"] {
+    font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Icons" !important;
+    font-weight: normal !important;
+    font-style: normal !important;
+    font-size: 1.25rem !important;
+    line-height: 1 !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;
+    display: inline-block !important;
+    white-space: nowrap !important;
+    word-wrap: normal !important;
+    direction: ltr !important;
+    -webkit-font-feature-settings: 'liga' 1 !important;
+    font-feature-settings: 'liga' 1 !important;
+    -webkit-font-smoothing: antialiased !important;
+}
+
+/* Fix expander chevron spacing and alignment */
+[data-testid="stExpander"] summary {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+}
+
+[data-testid="stExpanderStepChevron"] {
+    display: inline-flex !important;
+    align-items: center !important;
+    margin-right: 6px !important;
 }
 
 /* Glassmorphism KPI Metric Cards */
@@ -145,23 +198,26 @@ html, body, [class*="css"], [class*="st-"] {
 }
 
 /* Global button styling enhancement */
-div.stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-    border: 1px solid rgba(147, 197, 253, 0.35);
-    border-radius: 10px;
-    padding: 8px 22px;
-    font-weight: 700;
-    font-size: 0.95rem;
-    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
-    transition: all 0.2s ease-in-out;
+div.stButton > button[kind="primary"],
+div.stButton > button[data-testid="stBaseButton-primary"] {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+    border: 1px solid rgba(147, 197, 253, 0.35) !important;
+    border-radius: 10px !important;
+    padding: 8px 22px !important;
+    font-weight: 700 !important;
+    font-size: 0.95rem !important;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
+    transition: all 0.2s ease-in-out !important;
 }
 
-div.stButton > button[kind="primary"]:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.55);
+div.stButton > button[kind="primary"]:hover,
+div.stButton > button[data-testid="stBaseButton-primary"]:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.55) !important;
 }
 </style>
 """
+
 
 def apply_custom_css():
     """Inject custom glassmorphism styles into the Streamlit app."""

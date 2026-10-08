@@ -41,18 +41,41 @@ class InferenceService:
             self.optimal_threshold = 0.39
             self.metadata = {"model_name": "Standard Scikit-learn Pipeline"}
 
-    def _prepare_dataframe(self, data: Union[CustomerProfile, dict[str, Any], pd.DataFrame]) -> pd.DataFrame:
+    def _prepare_dataframe(self, data: Any) -> pd.DataFrame:
         """
         Converts customer input into standard cleaned DataFrame for pipeline ingestion.
+        Guaranteed to handle CustomerProfile instances, reloaded Pydantic models, dicts,
+        DataFrames, Series, or any custom object.
         """
-        if isinstance(data, CustomerProfile) or (hasattr(data, "model_dump") and callable(getattr(data, "model_dump", None))):
-            df = pd.DataFrame([data.model_dump()])
+        if isinstance(data, pd.DataFrame):
+            df = data.copy()
+        elif isinstance(data, pd.Series):
+            df = pd.DataFrame([data.to_dict()])
         elif isinstance(data, dict):
             df = pd.DataFrame([data])
-        elif isinstance(data, pd.DataFrame):
-            df = data.copy()
+        elif hasattr(data, "model_dump"):
+            try:
+                dump = data.model_dump()
+                df = pd.DataFrame([dump])
+            except Exception:
+                try:
+                    df = pd.DataFrame([data.__dict__])
+                except Exception:
+                    df = pd.DataFrame([dict(data)])
+        elif hasattr(data, "dict") and callable(getattr(data, "dict")):
+            df = pd.DataFrame([data.dict()])
+        elif type(data).__name__ == "CustomerProfile" or hasattr(data, "__dict__"):
+            if hasattr(data, "model_fields"):
+                d = {k: getattr(data, k) for k in data.model_fields.keys() if hasattr(data, k)}
+                df = pd.DataFrame([d])
+            else:
+                clean_dict = {k: v for k, v in data.__dict__.items() if not k.startswith("_")}
+                df = pd.DataFrame([clean_dict])
         else:
-            raise ValueError(f"Unsupported data type for inference: {type(data)}")
+            try:
+                df = pd.DataFrame([dict(data)])
+            except Exception:
+                raise ValueError(f"Unsupported data type for inference: {type(data)}")
 
         # Exclude non-feature identification columns if present
         cols_to_drop = [c for c in ["customer_id", "customerID", "Churn", "churn"] if c in df.columns]

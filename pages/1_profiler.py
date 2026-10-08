@@ -14,6 +14,7 @@ from src.ui.components import (
     render_decision_card,
     render_factor_card,
     render_metric_card,
+    render_risk_gauge,
 )
 from src.ui.styles import apply_custom_css
 
@@ -156,49 +157,41 @@ current_profile = CustomerProfile(
 inf_result = inf_svc.predict_single(current_profile, custom_threshold=custom_threshold)
 diagnostic = shap_svc.explain_customer(current_profile, top_k=3)
 
-# Top KPI Metrics Display
-st.markdown("### 📊 Status Prediksi & Dampak Finansial")
-m1, m2, m3, m4 = st.columns(4)
+# Top KPI Metrics & Risk Indicator Display
+st.markdown("### 📊 Status Risiko Pelanggan & Dampak Finansial")
+col_gauge, col_kpis = st.columns([1.15, 1.85])
 
-prob_val = inf_result.churn_probability * 100
-color_class = "metric-value-danger" if prob_val >= 60 else ("metric-value-warning" if prob_val >= custom_threshold * 100 else "metric-value-success")
+with col_gauge:
+    render_risk_gauge(inf_result.churn_probability, threshold=custom_threshold)
 
-with m1:
-    render_metric_card(
-        "⚡ Probabilitas Churn",
-        f"{prob_val:.1f}%",
-        f"Ambang Batas Intervensi: {custom_threshold * 100:.1f}%",
-        color_class=color_class,
-    )
+with col_kpis:
+    k1, k2, k3 = st.columns(3)
+    with k1:
+        render_badge_card(
+            "🛡️ Tingkat Risiko",
+            inf_result.risk_level,
+            f"Ambang Batas: {custom_threshold * 100:.0f}%",
+        )
+    with k2:
+        decision_sub = "Perlu Tindakan Retensi" if inf_result.decision == "INTERVENE" else "Akun Pelanggan Aman"
+        render_decision_card(
+            "🎯 Status Rekomendasi",
+            inf_result.decision,
+            decision_sub,
+            is_intervene=(inf_result.decision == "INTERVENE"),
+        )
+    with k3:
+        render_metric_card(
+            "💰 Potensi Rugi / Thn",
+            f"${inf_result.expected_loss:,.2f}",
+            f"Nilai Kontrak: ${monthly * 12:,.1f}/thn",
+            color_class="metric-value-warning",
+        )
 
-with m2:
-    render_badge_card(
-        "🛡️ Tingkat Risiko",
-        inf_result.risk_level,
-        "Kategori Urgensi Akun",
-    )
-
-with m3:
-    decision_sub = "Tindakan Retensi Diperlukan" if inf_result.decision == "INTERVENE" else "Akun Pelanggan Aman"
-    render_decision_card(
-        "🎯 Keputusan Sistem",
-        inf_result.decision,
-        decision_sub,
-        is_intervene=(inf_result.decision == "INTERVENE"),
-    )
-
-with m4:
-    render_metric_card(
-        "💰 Expected Annual Loss",
-        f"${inf_result.expected_loss:,.2f}",
-        f"P(churn) × Tahunan (${monthly * 12:,.1f})",
-        color_class="metric-value-warning",
-    )
-
-# Explainable AI (TreeSHAP) Visualization
+# Explainable AI & Factor Attribution Visualization
 st.divider()
-st.markdown("### 🔬 Explainable AI (TreeSHAP) Factor Attribution")
-st.caption("Dekomposisi log-odds prediksi churn menjadi kontribusi marjinal tiap fitur spesifik untuk pelanggan ini.")
+st.markdown("### 🔍 Analisis Faktor Pemicu & Penahan Churn")
+st.caption("Identifikasi faktor utama yang mendorong pelanggan untuk berhenti berlangganan vs faktor yang menjaga loyalitas akun.")
 
 col_shap_plot, col_shap_desc = st.columns([1.3, 1.0])
 
@@ -210,7 +203,7 @@ with col_shap_plot:
         vals = [f.shap_value for f in sorted_factors]
         colors = ["#f87171" if v > 0 else "#34d399" for v in vals]
         explanations = [f.human_explanation for f in sorted_factors]
-        types = ["Pemicu Risiko (+)" if v > 0 else "Penahan Retensi (-)" for v in vals]
+        types = ["Pemicu Risiko (+)" if v > 0 else "Penjaga Loyalitas (-)" for v in vals]
 
         fig_shap = go.Figure()
         fig_shap.add_trace(
@@ -225,7 +218,7 @@ with col_shap_plot:
                 customdata=list(zip(types, explanations)),
                 hovertemplate=(
                     "<b>%{y}</b><br>"
-                    + "Pengaruh SHAP: <b>%{x:+.4f}</b><br>"
+                    + "Tingkat Pengaruh: <b>%{x:+.4f}</b><br>"
                     + "Kategori: %{customdata[0]}<br>"
                     + "<i>%{customdata[1]}</i><extra></extra>"
                 ),
@@ -234,11 +227,11 @@ with col_shap_plot:
 
         fig_shap.update_layout(
             title=dict(
-                text="Faktor Penentu Risiko (Merah: Menaikkan Risiko | Hijau: Menahan Churn)",
+                text="Pengaruh Fitur terhadap Keputusan Pelanggan",
                 font=dict(size=13, color="#f8fafc", family="Plus Jakarta Sans"),
             ),
             xaxis=dict(
-                title=dict(text="SHAP Value (Log-Odds Impact)", font=dict(color="#94a3b8", size=11)),
+                title=dict(text="Tingkat Pengaruh (Relatif)", font=dict(color="#94a3b8", size=11)),
                 tickfont=dict(color="#94a3b8"),
                 gridcolor="rgba(51, 65, 85, 0.4)",
                 zerolinecolor="#94a3b8",
@@ -252,16 +245,16 @@ with col_shap_plot:
             margin=dict(l=20, r=20, t=40, b=30),
             height=320,
         )
-        st.plotly_chart(fig_shap, width="stretch", alt="TreeSHAP local feature attribution chart")
+        st.plotly_chart(fig_shap, width="stretch", alt="Grafik faktor penentu retensi pelanggan")
 
 with col_shap_desc:
-    st.markdown("**🚨 Faktor Pemicu Risiko Teratas:**")
+    st.markdown("**🚨 Faktor Utama Pemicu Risiko Churn:**")
     for rd in diagnostic.top_risk_drivers:
         feature_clean = rd.feature_name.split("__")[-1]
         render_factor_card(feature_clean, rd.shap_value, rd.human_explanation, is_risk=True)
 
     if diagnostic.top_retention_anchors:
-        st.markdown("**🛡️ Faktor Penahan / Pelindung:**")
+        st.markdown("**🛡️ Faktor Utama Penjaga Loyalitas Pelanggan:**")
         for ra in diagnostic.top_retention_anchors:
             feature_clean = ra.feature_name.split("__")[-1]
             render_factor_card(feature_clean, ra.shap_value, ra.human_explanation, is_risk=False)
@@ -271,8 +264,8 @@ with col_shap_desc:
 # WHAT-IF COUNTERFACTUAL SANDBOX (ISOLATED FRAGMENT)
 # -----------------------------------------------------
 st.divider()
-st.markdown("### 🧪 What-If Counterfactual Sandbox")
-st.caption("Uji dampak modifikasi penawaran kontrak atau paket proteksi terhadap penurunan probabilitas churn secara instan.")
+st.markdown("### 🧪 Simulasi Intervensi Penawaran (What-If)")
+st.caption("Uji coba dampak modifikasi penawaran kontrak atau paket proteksi terhadap penurunan risiko churn secara instan.")
 
 
 @st.fragment
@@ -319,7 +312,7 @@ def render_whatif_sandbox(profile: CustomerProfile, baseline_monthly: float):
             delta="Finansial Positif" if net_eval["is_profitable"] else "Negatif",
         )
     else:
-        st.info("💡 Ubah salah satu opsi simulasi di atas untuk mengevaluasi dampak counterfactual terhadap risiko churn.")
+        st.info("💡 Ubah salah satu opsi simulasi di atas untuk mengevaluasi dampak intervensi terhadap penurunan risiko churn.")
 
 
 render_whatif_sandbox(current_profile, monthly)
@@ -329,13 +322,13 @@ render_whatif_sandbox(current_profile, monthly)
 # AGENTIC RETENTION COPILOT (ISOLATED FRAGMENT)
 # -----------------------------------------------------
 st.divider()
-st.markdown("### 🤖 Agentic AI Retention Copilot")
-st.write("Orkestrasi intervensi strategis: Mencari paket retensi optimal ($C \\le \\$20$), menguji simulasi dampak, dan merumuskan naskah komunikasi empati.")
+st.markdown("### 🤖 Asisten Rekomendasi Tindakan Retensi (AI Copilot)")
+st.write("Rekomendasi paket retensi otomatis dengan efisiensi biaya intervensi optimal (pagu $\\le \\$20$), proyeksi penghematan (ROI), dan naskah komunikasi ramah pelanggan.")
 
 
 @st.fragment
 def render_copilot_section(profile: CustomerProfile, diag):
-    if st.button("⚡ Generate Strategic Retention Plan", type="primary", key="btn_gen_plan"):
+    if st.button("⚡ Buat Rencana Retensi Strategis", type="primary", key="btn_gen_plan"):
         with st.spinner("Mengorkestrasi Agen AI & Menghitung Optimasi Intervensi..."):
             plan = agent_svc.generate_retention_plan(profile, diag)
 

@@ -79,21 +79,57 @@ if df_to_process is not None:
             color_class="metric-value-info",
         )
 
-    # Filter option
-    risk_filter = st.selectbox(
-        "Filter berdasarkan Tingkat Risiko:",
-        ["SEMUA", "HIGH_RISK", "MODERATE_RISK", "LOW_RISK"],
-        key="batch_risk_filter",
-    )
+    # Customer Prioritization Mechanism (Poin 8)
+    # Assign Action Priority Tier based on combination of Risk & Business Value (Expected Loss)
+    def assign_priority(row):
+        if row["decision"] == "INTERVENE" and row["expected_loss"] >= 500:
+            return "P1 - Kritis (High Value)"
+        elif row["decision"] == "INTERVENE":
+            return "P2 - Prioritas Tinggi"
+        elif row["risk_level"] == "MODERATE_RISK":
+            return "P3 - Waspada"
+        else:
+            return "P4 - Monitoring Rutin"
+
+    scored_df["priority_tier"] = scored_df.apply(assign_priority, axis=1)
+
+    # Sort & Filter Controls
+    col_filter, col_sort = st.columns([1, 1])
+    with col_filter:
+        risk_filter = st.selectbox(
+            "Filter berdasarkan Kategori Urgensi:",
+            ["SEMUA", "HIGH_RISK", "MODERATE_RISK", "LOW_RISK"],
+            key="batch_risk_filter",
+            help="Saring daftar akun berdasarkan tingkat risiko churn yang diprediksi model.",
+        )
+    with col_sort:
+        sort_by = st.selectbox(
+            "Urutkan Antrean Berdasarkan:",
+            ["Potensi Kerugian (Expected Loss)", "Probabilitas Churn", "Tagihan Bulanan (Monthly Charges)"],
+            index=0,
+            key="batch_sort_by",
+            help="Prioritaskan akun bernilai tinggi untuk memaksimalkan ROI penyelamatan retensi.",
+        )
+
+    # Apply Filtering
     if risk_filter != "SEMUA":
-        display_df = scored_df[scored_df["risk_level"] == risk_filter]
+        display_df = scored_df[scored_df["risk_level"] == risk_filter].copy()
     else:
-        display_df = scored_df
+        display_df = scored_df.copy()
+
+    # Apply Sorting
+    if sort_by == "Potensi Kerugian (Expected Loss)":
+        display_df = display_df.sort_values(by="expected_loss", ascending=False)
+    elif sort_by == "Probabilitas Churn":
+        display_df = display_df.sort_values(by="churn_probability", ascending=False)
+    else:
+        display_df = display_df.sort_values(by="MonthlyCharges", ascending=False)
 
     # Columns to display
-    show_cols = [
+    display_cols = [
         c
         for c in [
+            "priority_tier",
             "customerID",
             "customer_id",
             "tenure",
@@ -106,14 +142,41 @@ if df_to_process is not None:
         ]
         if c in display_df.columns
     ]
-    st.dataframe(display_df[show_cols], width="stretch")
+
+    st.markdown("#### 📋 Antrean Kerja Tindakan Retensi")
+    st.caption("Daftar terurut secara otomatis memprioritaskan akun dengan potensi kerugian bisnis terbesar.")
+    
+    st.dataframe(
+        display_df[display_cols],
+        column_config={
+            "priority_tier": st.column_config.TextColumn("Prioritas Tindakan"),
+            "customerID": st.column_config.TextColumn("Customer ID"),
+            "customer_id": st.column_config.TextColumn("Customer ID"),
+            "tenure": st.column_config.NumberColumn("Tenure (Bln)"),
+            "Contract": st.column_config.TextColumn("Tipe Kontrak"),
+            "MonthlyCharges": st.column_config.NumberColumn("Biaya Bulanan ($)", format="$%.2f"),
+            "churn_probability": st.column_config.ProgressColumn(
+                "Probabilitas Churn",
+                help="Prediksi peluang pelanggan berhenti berlangganan",
+                format="%.1f%%",
+                min_value=0.0,
+                max_value=1.0,
+            ),
+            "decision": st.column_config.TextColumn("Keputusan"),
+            "risk_level": st.column_config.TextColumn("Tingkat Risiko"),
+            "expected_loss": st.column_config.NumberColumn("Potensi Rugi/Thn", format="$%.2f"),
+        },
+        width="stretch",
+        hide_index=True,
+    )
 
     # Download Enriched CSV
-    csv_data = scored_df.to_csv(index=False).encode("utf-8")
+    csv_data = display_df.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="💾 Unduh Antrean Kerja Retensi (CSV)",
+        label="💾 Unduh Antrean Kerja Retensi Terurut (CSV)",
         data=csv_data,
         file_name="telco_retention_work_queue.csv",
         mime="text/csv",
         key="btn_download_batch_csv",
+        help="Unduh data antrean kerja ini untuk ditugaskan langsung ke tim Customer Success.",
     )

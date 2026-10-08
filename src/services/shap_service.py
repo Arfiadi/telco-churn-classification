@@ -84,10 +84,13 @@ class SHAPService:
         # Ensure profile schema validation
         if isinstance(customer, dict):
             profile = CustomerProfile(**customer)
-        elif isinstance(customer, CustomerProfile) or hasattr(customer, "model_dump"):
+        elif type(customer).__name__ == "CustomerProfile" or hasattr(customer, "model_dump") or hasattr(customer, "dict"):
             profile = customer
         else:
-            raise ValueError(f"Invalid customer type: {type(customer)}")
+            try:
+                profile = CustomerProfile(**dict(customer))
+            except Exception:
+                profile = customer
 
         df_clean = self.inference_service._prepare_dataframe(profile)
         X_trans = self._transform_customer_features(df_clean)
