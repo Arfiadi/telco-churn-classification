@@ -1,8 +1,8 @@
 # Telco Customer Churn: Predictive Pipeline & Profit-Driven Decisioning
 
-> **Mata Kuliah:** Machine Learning (Semester 3) — Proyek Review & Penerapan Machine Learning dengan Data IBM Telco Customer Churn.
+> **Proyek AI & Data Science:** Arsitektur *Intelligent Retention* & Penerapan Machine Learning End-to-End dengan Data IBM Telco Customer Churn.
 > **Dokumentasi Lengkap:** Detail arsitektur data science, kamus variabel, audit pencegahan *data leakage*, dan evaluasi teknis tersedia di [docs/methodologi.md](docs/methodologi.md).
-
+> **Live Demo (Web App):** 🚀 [https://telco-churn-agent-support.streamlit.app/](https://telco-churn-agent-support.streamlit.app/)
 ---
 
 ## 1. Problem Statement & Business Objective
