@@ -17,19 +17,19 @@ st.set_page_config(
 pages = [
     st.Page(
         "pages/1_profiler.py",
-        title="Single Customer Profiler & Copilot",
-        icon="👤",
+        title="Single customer profiler & copilot",
+        icon=":material/person:",
         default=True,
     ),
     st.Page(
         "pages/2_batch_queue.py",
-        title="Batch Work Queue Priority",
-        icon="📁",
+        title="Batch work queue priority",
+        icon=":material/dataset:",
     ),
     st.Page(
         "pages/3_governance.py",
-        title="Executive Governance & Diagnostics",
-        icon="📈",
+        title="Executive governance & diagnostics",
+        icon=":material/analytics:",
     ),
 ]
 

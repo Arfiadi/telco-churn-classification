@@ -20,7 +20,7 @@ st.write("Unggah file CSV pelanggan atau gunakan dataset bawaan untuk menghasilk
 
 col_btn1, col_btn2 = st.columns([1, 2])
 with col_btn1:
-    use_sample = st.button("📥 Muat Sampel Dataset (Top 50 Pelanggan)", key="btn_load_sample")
+    use_sample = st.button("Muat sampel dataset (Top 50 pelanggan)", icon=":material/download:", key="btn_load_sample")
 
 uploaded_file = st.file_uploader("Atau unggah file CSV pelanggan:", type=["csv"], key="batch_file_uploader")
 
@@ -173,10 +173,11 @@ if df_to_process is not None:
     # Download Enriched CSV
     csv_data = display_df.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="💾 Unduh Antrean Kerja Retensi Terurut (CSV)",
+        label="Unduh antrean kerja retensi terurut (CSV)",
         data=csv_data,
         file_name="telco_retention_work_queue.csv",
         mime="text/csv",
+        icon=":material/download:",
         key="btn_download_batch_csv",
         help="Unduh data antrean kerja ini untuk ditugaskan langsung ke tim Customer Success.",
     )
