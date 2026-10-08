@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints*/
+
+# Temporary logs & metadata
+logs.log
+catboost_info/
+notebook_summary.txt
+generate_tuning_notebook.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Legacy Draft Notebooks (kept locally, ignored from git)
+telco_churn_clasification (1).ipynb
+telco_churn_hyperparameter_tuning.ipynb
