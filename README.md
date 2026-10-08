@@ -1,7 +1,6 @@
 # Telco Customer Churn: Predictive Pipeline & Profit-Driven Decisioning
 
-Proyek machine learning end-to-end untuk memprediksi risiko churn pelanggan telekomunikasi berbasis data perilaku dan keuangan, dioptimalkan untuk meminimalkan kerugian finansial bisnis (*Customer Lifetime Value*) menggunakan Scikit-Learn Pipeline, LightGBM, Optuna, dan SHAP.
-
+> **Mata Kuliah:** Machine Learning (Semester 3) — Proyek Review & Penerapan Machine Learning dengan Data IBM Telco Customer Churn.
 > **Dokumentasi Lengkap:** Detail arsitektur data science, kamus variabel, audit pencegahan *data leakage*, dan evaluasi teknis tersedia di [docs/methodologi.md](docs/methodologi.md).
 
 ---
