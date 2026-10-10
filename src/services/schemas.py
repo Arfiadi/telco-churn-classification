@@ -140,6 +140,6 @@ class RetentionPlan(BaseModel):
     )
     generation_source: str = Field(
         "OPENROUTER_AGENT",
-        pattern=r"^(OPENROUTER_AGENT|HEURISTIC_FALLBACK)$",
+        pattern=r"^(OPENROUTER_AGENT|GEMINI_AGENT|PYDANTIC_AI_AGENT|HEURISTIC_FALLBACK)$",
         description="Sumber eksekusi strategi: Live AI atau Fallback Rule Engine."
     )

@@ -93,3 +93,63 @@ def test_all_benchmark_personas_harness(benchmark_personas):
 
         # 4. Valid confidence level
         assert plan.confidence_level in ["HIGH", "MEDIUM", "LOW"]
+
+
+def test_pydantic_ai_agent_mock_execution():
+    """
+    Validates end-to-end PydanticAI Agent orchestration using TestModel.
+    Verifies dependency injection, tool registration, and RetentionPlan typed output.
+    """
+    from pydantic_ai.models.test import TestModel
+    from src.services.agent_service import RetentionDeps, create_retention_agent
+    from src.services.shap_service import get_shap_service
+
+    mock_plan = {
+        "root_cause_diagnosis": "Pelanggan mengalami friksi kontrak bulanan dan ketiadaan tech support.",
+        "recommended_package_name": "Tech Support & Security Bundle",
+        "incentive_cost_usd": 15.00,
+        "simulated_churn_prob": 0.28,
+        "risk_reduction_pct": 45.0,
+        "projected_net_value_usd": 180.00,
+        "outreach_script": "Halo Bapak/Ibu, terima kasih atas kesetiaan Anda bersama kami.",
+        "confidence_level": "HIGH",
+        "generation_source": "OPENROUTER_AGENT",
+    }
+
+    test_model = TestModel(custom_output_args=mock_plan)
+    agent = create_retention_agent(model=test_model)
+
+    cust = CustomerProfile(
+        customer_id="CUST-PYDANTIC-AI-TEST",
+        gender="Male",
+        SeniorCitizen=0,
+        Partner="No",
+        Dependents="No",
+        tenure=5,
+        PhoneService="Yes",
+        MultipleLines="No",
+        InternetService="Fiber optic",
+        OnlineSecurity="No",
+        OnlineBackup="No",
+        DeviceProtection="No",
+        TechSupport="No",
+        StreamingTV="No",
+        StreamingMovies="No",
+        Contract="Month-to-month",
+        PaperlessBilling="Yes",
+        PaymentMethod="Electronic check",
+        MonthlyCharges=80.0,
+        TotalCharges=400.0,
+    )
+    shap_svc = get_shap_service()
+    diag = shap_svc.explain_customer(cust)
+    deps = RetentionDeps(customer=cust, diagnostic=diag)
+
+    result = agent.run_sync("Buatkan rencana retensi presisi", deps=deps)
+    plan = result.output
+
+    assert isinstance(plan, RetentionPlan)
+    assert plan.recommended_package_name == "Tech Support & Security Bundle"
+    assert plan.incentive_cost_usd <= 20.00
+    assert plan.confidence_level == "HIGH"
+    assert plan.simulated_churn_prob == 0.28

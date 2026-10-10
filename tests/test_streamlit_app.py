@@ -5,14 +5,17 @@ Tests cover navigation, customer profiling, what-if counterfactual simulation,
 AI retention copilot execution, batch processing work queue, and governance diagnostics.
 """
 
+from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
+
+APP_ENTRYPOINT = str((Path(__file__).resolve().parent.parent / "app.py").resolve())
 
 
 @pytest.fixture
 def app_runner():
     """Initializes and runs the main Streamlit application entrypoint."""
-    at = AppTest.from_file("../app.py", default_timeout=25).run()
+    at = AppTest.from_file(APP_ENTRYPOINT, default_timeout=25).run()
     assert not at.exception, f"App crashed on startup: {at.exception}"
     return at
 

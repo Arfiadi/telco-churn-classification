@@ -1,19 +1,24 @@
 """
 Agent Service Orchestrator for Telco Churn Intelligent Retention Platform.
-Orchestrates OpenRouter LLM ladder with function/tool calling and offline heuristic fallback.
+Orchestrates PydanticAI Agent with deterministic tool calling and offline heuristic fallback.
 """
 
-import json
+from dataclasses import dataclass
 import logging
 import os
 from typing import Any, Optional
 from dotenv import load_dotenv
-from openai import OpenAI
+
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.google import GoogleModel
+from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.providers.google import GoogleProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from src.services.agent_tools import (
-    calculate_retention_roi,
-    get_eligible_retention_offers,
-    simulate_churn_impact,
+    calculate_retention_roi as tools_calculate_retention_roi,
+    get_eligible_retention_offers as tools_get_eligible_retention_offers,
+    simulate_churn_impact as tools_simulate_churn_impact,
 )
 from src.services.fallback_engine import HeuristicRetentionEngine
 from src.services.schemas import CustomerDiagnostic, CustomerProfile, RetentionPlan
@@ -24,12 +29,18 @@ logger = logging.getLogger(__name__)
 
 # Model Fallback Hierarchy (Free Tier on OpenRouter)
 DEFAULT_MODEL_LADDER = [
-    os.getenv("OPENROUTER_MODEL", "openrouter/free"),
-    "openrouter/free",
+    os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemini-2.0-flash-exp:free",
+    "qwen/qwen-2.5-72b-instruct:free",
     "google/gemma-4-31b-it:free",
-    "google/gemma-4-26b-a4b-it:free",
-    "nvidia/nemotron-3-super-120b-a12b:free",
     "liquid/lfm-2.5-2.6b:free",
+]
+
+DEFAULT_GEMINI_LADDER = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
 ]
 
 SYSTEM_PROMPT = """Anda adalah "Telco Retention Copilot", asisten AI strategis tingkat eksekutif untuk tim Customer Success PT Telekomunikasi.
@@ -40,74 +51,80 @@ ATURAN BISNIS & GUARDRAILS WAJIB (PELANGGARAN AKAN MENGAKIBATKAN REJEKSI SISTEM)
 2. DETERMINISTIK & DATA-DRIVEN: Anda WAJIB memanggil tool `simulate_churn_impact` untuk menguji penurunan probabilitas churn sebelum menyimpulkan rekomendasi paket. JANGAN MENEBAK probabilitas!
 3. TARGET SHAP DRIVER: Rencana intervensi harus secara langsung mengatasi faktor risiko teratas (top risk drivers) dari analisis SHAP pelanggan. JANGAN PERNAH menawarkan migrasi atau downgrade kontrak kepada pelanggan yang sudah terikat kontrak 1 tahun atau 2 tahun.
 4. NASKAH KOMUNIKASI & BAHASA: Tuliskan `outreach_script` dan `root_cause_diagnosis` seluruhnya dalam Bahasa Indonesia yang santun, personal, dan empatik, mengakui nilai hubungan pelanggan tanpa menyebutkan kata "kami mendeteksi Anda akan churn".
-5. OUTPUT TERSTRUKTUR: Seluruh respon akhir harus berupa JSON valid yang mematuhi skema berikut secara eksak:
-```json
-{
-  "root_cause_diagnosis": "<Ringkasan 2 kalimat akar masalah dalam Bahasa Indonesia>",
-  "recommended_package_name": "<Nama paket retensi>",
-  "incentive_cost_usd": <Biaya <= 20.0>,
-  "simulated_churn_prob": <Probabilitas baru hasil simulate_churn_impact>,
-  "risk_reduction_pct": <Persentase penurunan risiko>,
-  "projected_net_value_usd": <Nilai keuntungan bersih>,
-  "outreach_script": "<Naskah percakapan empati dalam Bahasa Indonesia>",
-  "confidence_level": "HIGH"
-}
-```
+5. OUTPUT TERSTRUKTUR: Kembalikan respon akhir yang mematuhi skema RetentionPlan secara eksak.
 """
 
-TOOL_DEFINITIONS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_eligible_retention_offers",
-            "description": "Mengambil katalog penawaran retensi yang telah disetujui perusahaan dengan pagu biaya <= $20.00.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "simulate_churn_impact",
-            "description": "Menjalankan pipeline Machine Learning LightGBM asli untuk menghitung probabilitas churn baru jika fitur pelanggan dimodifikasi (what-if analysis).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "feature_modifications": {
-                        "type": "object",
-                        "description": "Dictionary modifikasi fitur, contoh: {'Contract': 'One year'} atau {'TechSupport': 'Yes'}.",
-                    }
-                },
-                "required": ["feature_modifications"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "calculate_retention_roi",
-            "description": "Menghitung return-on-investment finansial retensi (Expected Net Profit) berdasarkan unit economics telco.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "monthly_charges": {"type": "number", "description": "Tagihan bulanan pelanggan saat ini."},
-                    "current_prob": {"type": "number", "description": "Probabilitas churn baseline sebelum intervensi."},
-                    "new_prob": {"type": "number", "description": "Probabilitas churn baru hasil simulasi."},
-                    "incentive_cost": {"type": "number", "description": "Biaya penawaran insentif (wajib <= $20.00)."},
-                },
-                "required": ["monthly_charges", "current_prob", "new_prob", "incentive_cost"],
-            },
-        },
-    },
-]
+
+@dataclass
+class RetentionDeps:
+    """
+    Dependency injection container for PydanticAI Agent.
+    Provides customer context and diagnostic explainability factors to tools via RunContext.
+    """
+    customer: CustomerProfile
+    diagnostic: CustomerDiagnostic
+
+
+def create_retention_agent(model: Any = None) -> Agent[RetentionDeps, RetentionPlan]:
+    """
+    Factory function creating a PydanticAI Agent configured with deterministic
+    retention engineering tools and typed RetentionPlan output.
+    """
+    agent: Agent[RetentionDeps, RetentionPlan] = Agent(
+        model=model,
+        output_type=RetentionPlan,
+        deps_type=RetentionDeps,
+        system_prompt=SYSTEM_PROMPT,
+    )
+
+    @agent.tool
+    def get_eligible_retention_offers(ctx: RunContext[RetentionDeps]) -> list[dict[str, Any]]:
+        """
+        Mengambil katalog penawaran retensi yang telah disetujui perusahaan dengan pagu biaya <= $20.00.
+        Menyaring penawaran yang relevan dengan profil pelanggan saat ini.
+        """
+        offers = tools_get_eligible_retention_offers(ctx.deps.customer)
+        return [o.model_dump() for o in offers]
+
+    @agent.tool
+    def simulate_churn_impact(
+        ctx: RunContext[RetentionDeps],
+        feature_modifications: dict[str, Any],
+    ) -> dict[str, float]:
+        """
+        Menjalankan pipeline Machine Learning LightGBM asli untuk menghitung probabilitas churn baru
+        jika fitur pelanggan dimodifikasi (what-if analysis).
+        """
+        return tools_simulate_churn_impact(ctx.deps.customer, feature_modifications)
+
+    @agent.tool
+    def calculate_retention_roi(
+        ctx: RunContext[RetentionDeps],
+        incentive_cost: float,
+        new_prob: float,
+        monthly_charges: Optional[float] = None,
+        current_prob: Optional[float] = None,
+    ) -> dict[str, Any]:
+        """
+        Menghitung return-on-investment finansial retensi (Expected Net Profit) berdasarkan unit economics telco.
+        Total biaya penawaran insentif (incentive_cost) WAJIB <= $20.00.
+        """
+        m_charges = monthly_charges if monthly_charges is not None else ctx.deps.customer.MonthlyCharges
+        c_prob = current_prob if current_prob is not None else ctx.deps.diagnostic.baseline_churn_prob
+        safe_cost = min(float(incentive_cost), 20.00)
+        return tools_calculate_retention_roi(
+            monthly_charges=m_charges,
+            current_prob=c_prob,
+            new_prob=float(new_prob),
+            incentive_cost=safe_cost,
+        )
+
+    return agent
 
 
 class AgentService:
     """
-    Manages multi-tier LLM interaction via OpenRouter with zero-downtime heuristic fallback.
+    Manages PydanticAI multi-tier LLM interaction with zero-downtime heuristic fallback.
     """
 
     def __init__(
@@ -124,51 +141,40 @@ class AgentService:
         elif os.getenv("GEMINI_API_KEY"):
             self.api_provider = "gemini"
             self.api_key = os.getenv("GEMINI_API_KEY")
-            self.model_ladder = ["gemini-3.8-flash", "gemini-3.8-flash-8b", "gemini-3.1-flash"]
+            self.model_ladder = model_ladder or DEFAULT_GEMINI_LADDER
         else:
             self.api_provider = "openrouter"
             self.api_key = api_key if api_key is not None else os.getenv("OPENROUTER_API_KEY")
             self.model_ladder = model_ladder or DEFAULT_MODEL_LADDER
-        
+
         self.heuristic_engine = HeuristicRetentionEngine()
         self.shap_service = get_shap_service()
+        self.agent = create_retention_agent()
 
-    def _get_client(self) -> Optional[OpenAI]:
-        """Creates OpenRouter-compatible OpenAI client if API key is present."""
+    def _get_client(self) -> Optional[Any]:
+        """
+        Backward-compatible inspection method for UI connection badges.
+        Returns the active model instance or Provider if an API key is present.
+        """
         if self.force_fallback or not self.api_key or self.api_key.startswith("your_"):
             return None
-            
-        if self.api_provider == "gemini":
-            return OpenAI(
-                api_key=self.api_key,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-            )
-        else:
-            return OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=self.api_key,
-                default_headers={
-                    "HTTP-Referer": "https://github.com/telco-churn-retention-copilot",
-                    "X-Title": "Telco Churn Intelligent Retention Platform",
-                },
-            )
+        return self._build_model_instance(self.model_ladder[0]) if self.model_ladder else None
 
-    def _execute_tool(self, name: str, args: dict[str, Any], customer: CustomerProfile) -> dict[str, Any]:
-        """Safely executes a local deterministic tool call requested by the agent."""
-        if name == "get_eligible_retention_offers":
-            offers = get_eligible_retention_offers(customer)
-            return {"offers": [o.model_dump() for o in offers]}
-        elif name == "simulate_churn_impact":
-            mods = args.get("feature_modifications", {})
-            return simulate_churn_impact(customer, mods)
-        elif name == "calculate_retention_roi":
-            m_charges = float(args.get("monthly_charges", customer.MonthlyCharges))
-            c_prob = float(args.get("current_prob", 0.5))
-            n_prob = float(args.get("new_prob", 0.3))
-            cost = float(args.get("incentive_cost", 15.0))
-            return calculate_retention_roi(m_charges, c_prob, n_prob, cost)
-        else:
-            return {"error": f"Tool '{name}' tidak ditemukan."}
+    def _build_model_instance(self, model_name: str) -> Optional[Any]:
+        """Creates a provider-backed model instance for PydanticAI."""
+        if self.force_fallback or not self.api_key or self.api_key.startswith("your_"):
+            return None
+
+        try:
+            if self.api_provider == "gemini":
+                provider = GoogleProvider(api_key=self.api_key)
+                return GoogleModel(model_name, provider=provider)
+            else:
+                provider = OpenRouterProvider(api_key=self.api_key)
+                return OpenRouterModel(model_name, provider=provider)
+        except Exception as e:
+            logger.warning(f"Failed to create model instance for {model_name}: {e}")
+            return None
 
     def generate_retention_plan(
         self,
@@ -176,22 +182,27 @@ class AgentService:
         diagnostic: Optional[CustomerDiagnostic] = None,
     ) -> RetentionPlan:
         """
-        Generates retention plan by querying OpenRouter LLM ladder with function calling,
+        Generates retention plan by querying LLM ladder via PydanticAI Agent with tool calling,
         falling back seamlessly to HeuristicRetentionEngine if all models fail.
         """
         if diagnostic is None:
             diagnostic = self.shap_service.explain_customer(customer)
 
-        client = self._get_client()
-        if client is None:
-            logger.info("OpenRouter API Key not set or invalid. Using HeuristicRetentionEngine.")
+        if self.force_fallback or not self.api_key or self.api_key.startswith("your_"):
+            logger.info("API Key not set, invalid, or offline mode forced. Using HeuristicRetentionEngine.")
             return self.heuristic_engine.generate_plan(customer, diagnostic)
 
-        # Build initial prompt messages
-        top_risks = [f"- {r.feature_name}: {r.human_explanation} (SHAP: +{r.shap_value:.4f})" for r in diagnostic.top_risk_drivers]
-        top_anchors = [f"- {a.feature_name}: {a.human_explanation} (SHAP: {a.shap_value:.4f})" for a in diagnostic.top_retention_anchors]
+        # Build detailed user prompt
+        top_risks = [
+            f"- {r.feature_name}: {r.human_explanation} (SHAP: +{r.shap_value:.4f})"
+            for r in diagnostic.top_risk_drivers
+        ]
+        top_anchors = [
+            f"- {a.feature_name}: {a.human_explanation} (SHAP: {a.shap_value:.4f})"
+            for a in diagnostic.top_retention_anchors
+        ]
 
-        user_content = f"""PROFIL PELANGGAN:
+        user_prompt = f"""PROFIL PELANGGAN:
 - ID Pelanggan: {customer.customer_id}
 - Masa Langganan: {customer.tenure} bulan
 - Tagihan Bulanan: ${customer.MonthlyCharges:.2f}
@@ -211,165 +222,50 @@ FAKTOR PENDORONG RISIKO UTAMA (TOP SHAP RISK DRIVERS):
 FAKTOR PELINDUNG UTAMA (TOP SHAP RETENTION ANCHORS):
 {chr(10).join(top_anchors)}
 
-INSTRUKSI:
+INSTRUKSI EKSEKUTIF:
 1. Panggil `get_eligible_retention_offers` untuk melihat opsi paket retensi yang disetujui. JANGAN PERNAH menawarkan migrasi/downgrade kontrak jika pelanggan sudah memiliki kontrak 1 tahun atau 2 tahun.
 2. Pilih paket yang paling tepat mengatasi pemicu risiko teratas. Jika pelanggan berisiko rendah, prioritaskan program apresiasi loyalitas.
 3. Panggil `simulate_churn_impact` untuk menguji paket tersebut pada pipeline ML.
 4. Panggil `calculate_retention_roi` untuk memverifikasi keuntungan finansial.
-5. Kembalikan respons akhir dalam format JSON eksak sesuai skema RetentionPlan. Seluruh diagnosis dan naskah outreach wajib dalam Bahasa Indonesia.
+5. Kembalikan respons terstruktur sesuai skema RetentionPlan. Seluruh diagnosis dan naskah outreach wajib dalam Bahasa Indonesia yang santun dan empatik.
 """
 
-        # Try each model in the fallback ladder
+        deps = RetentionDeps(customer=customer, diagnostic=diagnostic)
+
+        # Iterate through model ladder
         for model_name in self.model_ladder:
             try:
-                logger.info(f"Invoking OpenRouter model: {model_name}")
-                messages = [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_content},
-                ]
+                model_inst = self._build_model_instance(model_name)
+                if model_inst is None:
+                    continue
 
-                # Interactive tool calling loop (max 4 turns)
-                for _ in range(4):
-                    response = client.chat.completions.create(
-                        model=model_name,
-                        messages=messages,
-                        tools=TOOL_DEFINITIONS,
-                        tool_choice="auto",
-                        temperature=0.2,
-                    )
-                    choice = response.choices[0]
-                    message = choice.message
+                logger.info(f"Invoking PydanticAI Agent with model: {model_name}")
+                result = self.agent.run_sync(
+                    user_prompt,
+                    deps=deps,
+                    model=model_inst,
+                )
 
-                    if message.tool_calls:
-                        messages.append(message)
-                        for tool_call in message.tool_calls:
-                            func_name = tool_call.function.name
-                            func_args = json.loads(tool_call.function.arguments or "{}")
-                            tool_result = self._execute_tool(func_name, func_args, customer)
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "content": json.dumps(tool_result),
-                            })
-                    else:
-                        # Final response received
-                        content = message.content or ""
-                        # Extract JSON from response
-                        plan_dict = self._extract_json(content)
-                        if plan_dict:
-                            normalized = self._normalize_plan_dict(plan_dict, customer, diagnostic)
-                            if normalized:
-                                return RetentionPlan(**normalized)
-                        
-                        logger.warning(f"Failed to parse or normalize JSON from {model_name}. Raw content: {content}")
-                        break
+                plan: RetentionPlan = result.output
+                source_tag = f"{self.api_provider.upper()}_AGENT"
+                if plan.generation_source != source_tag:
+                    plan = plan.model_copy(update={"generation_source": source_tag})
+
+                # Validate budget guardrail
+                if plan.incentive_cost_usd > 20.00:
+                    plan = plan.model_copy(update={"incentive_cost_usd": 20.00})
+
+                return plan
 
             except Exception as e:
-                logger.warning(f"Error querying model {model_name}: {e}. Trying next model in ladder.")
+                logger.warning(
+                    f"Error running PydanticAI Agent with model '{model_name}': {e}. "
+                    "Proceeding to next model in ladder."
+                )
                 continue
 
-        logger.warning("All configured LLM models in ladder failed or were rate-limited. Falling back to heuristic engine.")
+        logger.warning(
+            "All configured LLM models in ladder failed or were rate-limited. "
+            "Falling back seamlessly to HeuristicRetentionEngine."
+        )
         return self.heuristic_engine.generate_plan(customer, diagnostic)
-
-    def _normalize_plan_dict(
-        self,
-        plan_dict: dict[str, Any],
-        customer: CustomerProfile,
-        diagnostic: CustomerDiagnostic,
-    ) -> Optional[dict[str, Any]]:
-        """
-        Defensively normalizes alternate keys and validates numeric fields before Pydantic parsing.
-        """
-        # Map alternate key names
-        key_aliases = {
-            "root_cause_diagnosis": ["diagnosis", "root_cause", "summary"],
-            "recommended_package_name": ["package_name", "package", "recommendation"],
-            "incentive_cost_usd": ["cost", "incentive_cost", "cost_usd"],
-            "simulated_churn_prob": ["new_churn_prob", "simulated_prob", "simulated_probability"],
-            "risk_reduction_pct": ["risk_reduction", "reduction_pct", "churn_reduction"],
-            "projected_net_value_usd": ["net_value", "net_profit", "roi_usd"],
-            "outreach_script": ["script", "communication_script", "pitch"],
-            "confidence_level": ["confidence", "confidence_score"],
-        }
-
-        normalized = dict(plan_dict)
-        for target, aliases in key_aliases.items():
-            if target not in normalized:
-                for alias in aliases:
-                    if alias in normalized:
-                        normalized[target] = normalized[alias]
-                        break
-
-        # Check required string fields or provide defaults from diagnostic
-        if "root_cause_diagnosis" not in normalized:
-            risk_summary = ", ".join([r.feature_name.split("__")[-1] for r in diagnostic.top_risk_drivers[:2]])
-            normalized["root_cause_diagnosis"] = f"Risiko churn dipicu oleh faktor dominan: {risk_summary}."
-
-        if "recommended_package_name" not in normalized:
-            normalized["recommended_package_name"] = "Contract Migration Shield"
-
-        if "outreach_script" not in normalized:
-            normalized["outreach_script"] = (
-                f"Halo Bapak/Ibu, terima kasih telah setia menggunakan layanan kami. "
-                f"Kami menyiapkan program apresiasi khusus untuk meningkatkan kenyamanan Anda."
-            )
-
-        # Enforce budget guardrails on incentive_cost_usd
-        try:
-            cost = float(normalized.get("incentive_cost_usd", 15.0))
-            normalized["incentive_cost_usd"] = min(cost, 20.00)
-        except (ValueError, TypeError):
-            normalized["incentive_cost_usd"] = 15.00
-
-        # Numeric conversions
-        def _safe_float(val, default):
-            if isinstance(val, (int, float)): return float(val)
-            try:
-                return float(str(val).replace('%', '').replace('$', '').replace(',', '').strip())
-            except (ValueError, TypeError):
-                return default
-
-        normalized["simulated_churn_prob"] = _safe_float(normalized.get("simulated_churn_prob"), 0.35)
-        normalized["risk_reduction_pct"] = _safe_float(normalized.get("risk_reduction_pct"), 30.0)
-        normalized["projected_net_value_usd"] = _safe_float(normalized.get("projected_net_value_usd"), 50.0)
-
-        # Confidence level regex enforcement
-        conf = str(normalized.get("confidence_level", "HIGH")).upper()
-        if conf not in ["HIGH", "MEDIUM", "LOW"]:
-            conf = "HIGH"
-        normalized["confidence_level"] = conf
-
-        normalized["generation_source"] = f"{self.api_provider.upper()}_AGENT"
-        return normalized
-
-    def _extract_json(self, text: str) -> Optional[dict[str, Any]]:
-        """Extracts JSON object from text containing possible markdown formatting."""
-        try:
-            return json.loads(text)
-        except Exception:
-            pass
-
-        # Try to find json code block
-        if "```json" in text:
-            try:
-                extracted = text.split("```json")[1].split("```")[0].strip()
-                return json.loads(extracted)
-            except Exception:
-                pass
-        elif "```" in text:
-            try:
-                extracted = text.split("```")[1].split("```")[0].strip()
-                return json.loads(extracted)
-            except Exception:
-                pass
-
-        # Try finding opening and closing braces
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            try:
-                return json.loads(text[start : end + 1])
-            except Exception:
-                pass
-
-        return None
