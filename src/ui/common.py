@@ -42,7 +42,10 @@ def render_sidebar():
         # API Connection Badge
         client_test = agent_svc._get_client()
         if client_test is not None:
-            st.success("🟢 OpenRouter Agent Online")
+            if getattr(agent_svc, "api_provider", "") == "gemini":
+                st.success("🟢 Google Gemini Agent Online")
+            else:
+                st.success("🟢 OpenRouter Agent Online")
         else:
             st.warning("🟡 Heuristic Fallback Active")
 

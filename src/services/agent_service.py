@@ -29,18 +29,17 @@ logger = logging.getLogger(__name__)
 
 # Model Fallback Hierarchy (Free Tier on OpenRouter)
 DEFAULT_MODEL_LADDER = [
-    os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemini-2.0-flash-exp:free",
-    "qwen/qwen-2.5-72b-instruct:free",
+    os.getenv("OPENROUTER_MODEL", "openrouter/free"),
+    "openrouter/free",
     "google/gemma-4-31b-it:free",
-    "liquid/lfm-2.5-2.6b:free",
+    "google/gemma-4-26b-a4b-it:free",
 ]
 
+# Google Gemini Active Models Ladder (Production-ready)
 DEFAULT_GEMINI_LADDER = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
 ]
 
 SYSTEM_PROMPT = """Anda adalah "Telco Retention Copilot", asisten AI strategis tingkat eksekutif untuk tim Customer Success PT Telekomunikasi.
@@ -124,7 +123,8 @@ def create_retention_agent(model: Any = None) -> Agent[RetentionDeps, RetentionP
 
 class AgentService:
     """
-    Manages PydanticAI multi-tier LLM interaction with zero-downtime heuristic fallback.
+    Manages PydanticAI multi-tier LLM interaction with cross-provider resilience
+    and zero-downtime heuristic fallback.
     """
 
     def __init__(
@@ -134,18 +134,25 @@ class AgentService:
         force_fallback: bool = False,
     ):
         self.force_fallback = force_fallback
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+        self.openrouter_api_key = api_key if api_key is not None else os.getenv("OPENROUTER_API_KEY")
+
         if force_fallback:
             self.api_provider = "none"
             self.api_key = None
             self.model_ladder = []
-        elif os.getenv("GEMINI_API_KEY"):
+        elif self.gemini_api_key and not self.gemini_api_key.startswith("your_"):
             self.api_provider = "gemini"
-            self.api_key = os.getenv("GEMINI_API_KEY")
+            self.api_key = self.gemini_api_key
             self.model_ladder = model_ladder or DEFAULT_GEMINI_LADDER
-        else:
+        elif self.openrouter_api_key and not self.openrouter_api_key.startswith("your_"):
             self.api_provider = "openrouter"
-            self.api_key = api_key if api_key is not None else os.getenv("OPENROUTER_API_KEY")
+            self.api_key = self.openrouter_api_key
             self.model_ladder = model_ladder or DEFAULT_MODEL_LADDER
+        else:
+            self.api_provider = "none"
+            self.api_key = None
+            self.model_ladder = []
 
         self.heuristic_engine = HeuristicRetentionEngine()
         self.shap_service = get_shap_service()
@@ -154,26 +161,32 @@ class AgentService:
     def _get_client(self) -> Optional[Any]:
         """
         Backward-compatible inspection method for UI connection badges.
-        Returns the active model instance or Provider if an API key is present.
+        Returns the active model instance if an API key is present.
         """
         if self.force_fallback or not self.api_key or self.api_key.startswith("your_"):
             return None
         return self._build_model_instance(self.model_ladder[0]) if self.model_ladder else None
 
-    def _build_model_instance(self, model_name: str) -> Optional[Any]:
+    def _build_model_instance(
+        self,
+        model_name: str,
+        provider: Optional[str] = None,
+    ) -> Optional[Any]:
         """Creates a provider-backed model instance for PydanticAI."""
-        if self.force_fallback or not self.api_key or self.api_key.startswith("your_"):
+        active_provider = provider or self.api_provider
+        if self.force_fallback:
             return None
 
         try:
-            if self.api_provider == "gemini":
-                provider = GoogleProvider(api_key=self.api_key)
-                return GoogleModel(model_name, provider=provider)
-            else:
-                provider = OpenRouterProvider(api_key=self.api_key)
-                return OpenRouterModel(model_name, provider=provider)
+            if active_provider == "gemini" and self.gemini_api_key:
+                p = GoogleProvider(api_key=self.gemini_api_key)
+                return GoogleModel(model_name, provider=p)
+            elif active_provider == "openrouter" and self.openrouter_api_key:
+                p = OpenRouterProvider(api_key=self.openrouter_api_key)
+                return OpenRouterModel(model_name, provider=p)
+            return None
         except Exception as e:
-            logger.warning(f"Failed to create model instance for {model_name}: {e}")
+            logger.warning(f"Failed to create model instance for {model_name} ({active_provider}): {e}")
             return None
 
     def generate_retention_plan(
@@ -183,7 +196,7 @@ class AgentService:
     ) -> RetentionPlan:
         """
         Generates retention plan by querying LLM ladder via PydanticAI Agent with tool calling,
-        falling back seamlessly to HeuristicRetentionEngine if all models fail.
+        falling back across providers and seamlessly to HeuristicRetentionEngine if all fail.
         """
         if diagnostic is None:
             diagnostic = self.shap_service.explain_customer(customer)
@@ -232,14 +245,14 @@ INSTRUKSI EKSEKUTIF:
 
         deps = RetentionDeps(customer=customer, diagnostic=diagnostic)
 
-        # Iterate through model ladder
+        # 1. Primary Provider Ladder
         for model_name in self.model_ladder:
             try:
-                model_inst = self._build_model_instance(model_name)
+                model_inst = self._build_model_instance(model_name, provider=self.api_provider)
                 if model_inst is None:
                     continue
 
-                logger.info(f"Invoking PydanticAI Agent with model: {model_name}")
+                logger.info(f"Invoking PydanticAI Agent with primary model: {model_name} ({self.api_provider})")
                 result = self.agent.run_sync(
                     user_prompt,
                     deps=deps,
@@ -264,8 +277,27 @@ INSTRUKSI EKSEKUTIF:
                 )
                 continue
 
+        # 2. Secondary Provider Fallover (Gemini -> OpenRouter)
+        if self.api_provider == "gemini" and self.openrouter_api_key and not self.openrouter_api_key.startswith("your_"):
+            for or_model in DEFAULT_MODEL_LADDER:
+                try:
+                    logger.info(f"Failing over to OpenRouter secondary model: {or_model}")
+                    or_inst = self._build_model_instance(or_model, provider="openrouter")
+                    if or_inst is None:
+                        continue
+                    result = self.agent.run_sync(user_prompt, deps=deps, model=or_inst)
+                    plan = result.output
+                    if plan.generation_source != "OPENROUTER_AGENT":
+                        plan = plan.model_copy(update={"generation_source": "OPENROUTER_AGENT"})
+                    if plan.incentive_cost_usd > 20.00:
+                        plan = plan.model_copy(update={"incentive_cost_usd": 20.00})
+                    return plan
+                except Exception as e_or:
+                    logger.warning(f"Error failover OpenRouter '{or_model}': {e_or}")
+                    continue
+
         logger.warning(
-            "All configured LLM models in ladder failed or were rate-limited. "
+            "All configured LLM models failed or were rate-limited. "
             "Falling back seamlessly to HeuristicRetentionEngine."
         )
         return self.heuristic_engine.generate_plan(customer, diagnostic)
