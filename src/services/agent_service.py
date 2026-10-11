@@ -187,9 +187,9 @@ class AgentService:
         self.heuristic_engine = HeuristicRetentionEngine()
         self.shap_service = get_shap_service()
         self.agent = create_retention_agent()
-        self._refresh_keys(api_key=api_key, model_ladder=model_ladder)
+        self.refresh_keys(api_key=api_key, model_ladder=model_ladder)
 
-    def _refresh_keys(
+    def refresh_keys(
         self,
         api_key: Optional[str] = None,
         model_ladder: Optional[list[str]] = None,
@@ -227,12 +227,20 @@ class AgentService:
             self.api_key = None
             self.model_ladder = []
 
+    def _refresh_keys(
+        self,
+        api_key: Optional[str] = None,
+        model_ladder: Optional[list[str]] = None,
+    ) -> None:
+        """Backward-compatible alias for refresh_keys."""
+        self.refresh_keys(api_key=api_key, model_ladder=model_ladder)
+
     def _get_client(self) -> Optional[Any]:
         """
         Backward-compatible inspection method for UI connection badges.
         Returns the active model instance if an API key is present.
         """
-        self._refresh_keys()
+        self.refresh_keys()
         if self.force_fallback or not self.api_key or self.api_key.startswith("your_"):
             return None
         return self._build_model_instance(self.model_ladder[0]) if self.model_ladder else None

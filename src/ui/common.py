@@ -10,11 +10,18 @@ from src.services.shap_service import get_shap_service
 
 
 @st.cache_resource
+def _load_ml_resources():
+    """Load core ML inference and SHAP explainability models (heavy resources)."""
+    return get_inference_service(), get_shap_service()
+
+
 def load_services():
-    """Load core ML inference, SHAP, and agent services."""
-    inf_svc = get_inference_service()
-    shap_svc = get_shap_service()
+    """Load core ML inference, SHAP, and dynamic agent services."""
+    inf_svc, shap_svc = _load_ml_resources()
     agent_svc = AgentService()
+    custom_key = st.session_state.get("custom_user_api_key")
+    if custom_key and hasattr(agent_svc, "refresh_keys"):
+        agent_svc.refresh_keys(api_key=custom_key)
     return inf_svc, shap_svc, agent_svc
 
 
@@ -32,11 +39,6 @@ def render_sidebar():
     """Render the standard sidebar navigation and configuration widgets."""
     _, _, agent_svc = load_services()
     personas_data = load_personas()
-
-    # Synchronize session-stored user API key if provided
-    custom_key = st.session_state.get("custom_user_api_key")
-    if custom_key:
-        agent_svc._refresh_keys(api_key=custom_key)
 
     with st.sidebar:
         st.title("📡 Telco Copilot")
@@ -82,12 +84,14 @@ def render_sidebar():
                 if st.button("Aktifkan AI", use_container_width=True, type="primary"):
                     if user_input_key.strip():
                         st.session_state["custom_user_api_key"] = user_input_key.strip()
-                        agent_svc._refresh_keys(api_key=user_input_key.strip())
+                        if hasattr(agent_svc, "refresh_keys"):
+                            agent_svc.refresh_keys(api_key=user_input_key.strip())
                         st.rerun()
             with col_btn2:
                 if st.button("Reset Key", use_container_width=True):
                     st.session_state.pop("custom_user_api_key", None)
-                    agent_svc._refresh_keys()
+                    if hasattr(agent_svc, "refresh_keys"):
+                        agent_svc.refresh_keys()
                     st.rerun()
 
             if client_test is None:

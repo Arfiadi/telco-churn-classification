@@ -346,7 +346,8 @@ st.write("Rekomendasi paket retensi otomatis dengan efisiensi biaya intervensi o
 def render_copilot_section(profile: CustomerProfile, diag):
     if st.button("Buat rencana retensi strategis", icon=":material/bolt:", type="primary", key="btn_gen_plan"):
         with st.spinner("Mengorkestrasi Agen AI & Menghitung Optimasi Intervensi..."):
-            plan = agent_svc.generate_retention_plan(profile, diag)
+            _, _, active_agent = load_services()
+            plan = active_agent.generate_retention_plan(profile, diag)
 
         source_label = (
             "🤖 Google Gemini AI Copilot" if "GEMINI" in plan.generation_source
