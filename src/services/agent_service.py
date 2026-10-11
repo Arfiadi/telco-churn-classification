@@ -27,6 +27,55 @@ from src.services.shap_service import get_shap_service
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+
+def _resolve_secret(key_name: str, passed_val: Optional[str] = None) -> Optional[str]:
+    """
+    Safely resolves API credentials from explicit argument, OS environment,
+    or Streamlit Cloud secrets (st.secrets).
+    """
+    if passed_val and not str(passed_val).startswith("your_"):
+        return str(passed_val).strip()
+
+    # 1. Check os.environ
+    env_val = os.getenv(key_name)
+    if env_val and not str(env_val).startswith("your_"):
+        return str(env_val).strip()
+
+    # 2. Check Streamlit Cloud secrets (st.secrets)
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            try:
+                # Direct match: st.secrets["GEMINI_API_KEY"]
+                if key_name in st.secrets:
+                    val = str(st.secrets[key_name]).strip()
+                    if val and not val.startswith("your_"):
+                        os.environ[key_name] = val
+                        return val
+
+                # Lowercase match: st.secrets["gemini_api_key"]
+                key_lower = key_name.lower()
+                if key_lower in st.secrets:
+                    val = str(st.secrets[key_lower]).strip()
+                    if val and not val.startswith("your_"):
+                        os.environ[key_name] = val
+                        return val
+
+                # Section match: st.secrets["gemini"]["api_key"]
+                section = "gemini" if "GEMINI" in key_name else "openrouter"
+                if section in st.secrets and isinstance(st.secrets[section], dict):
+                    val = str(st.secrets[section].get("api_key", "")).strip()
+                    if val and not val.startswith("your_"):
+                        os.environ[key_name] = val
+                        return val
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return None
+
+
 # Model Fallback Hierarchy (Free Tier on OpenRouter)
 DEFAULT_MODEL_LADDER = [
     os.getenv("OPENROUTER_MODEL", "openrouter/free"),
@@ -134,35 +183,56 @@ class AgentService:
         force_fallback: bool = False,
     ):
         self.force_fallback = force_fallback
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
-        self.openrouter_api_key = api_key if api_key is not None else os.getenv("OPENROUTER_API_KEY")
+        self.model_ladder_override = model_ladder
+        self.heuristic_engine = HeuristicRetentionEngine()
+        self.shap_service = get_shap_service()
+        self.agent = create_retention_agent()
+        self._refresh_keys(api_key=api_key, model_ladder=model_ladder)
 
-        if force_fallback:
+    def _refresh_keys(
+        self,
+        api_key: Optional[str] = None,
+        model_ladder: Optional[list[str]] = None,
+    ) -> None:
+        """Dynamically re-reads environment or secrets for live key activation."""
+        if self.force_fallback:
             self.api_provider = "none"
             self.api_key = None
+            self.gemini_api_key = None
+            self.openrouter_api_key = None
             self.model_ladder = []
-        elif self.gemini_api_key and not self.gemini_api_key.startswith("your_"):
+            return
+
+        self.gemini_api_key = _resolve_secret("GEMINI_API_KEY")
+        self.openrouter_api_key = _resolve_secret("OPENROUTER_API_KEY", api_key)
+
+        if api_key and not api_key.startswith("your_"):
+            if api_key.startswith("sk-or-") or api_key.startswith("sk-"):
+                self.openrouter_api_key = api_key.strip()
+                os.environ["OPENROUTER_API_KEY"] = self.openrouter_api_key
+            else:
+                self.gemini_api_key = api_key.strip()
+                os.environ["GEMINI_API_KEY"] = self.gemini_api_key
+
+        if self.gemini_api_key and not self.gemini_api_key.startswith("your_"):
             self.api_provider = "gemini"
             self.api_key = self.gemini_api_key
-            self.model_ladder = model_ladder or DEFAULT_GEMINI_LADDER
+            self.model_ladder = model_ladder or self.model_ladder_override or DEFAULT_GEMINI_LADDER
         elif self.openrouter_api_key and not self.openrouter_api_key.startswith("your_"):
             self.api_provider = "openrouter"
             self.api_key = self.openrouter_api_key
-            self.model_ladder = model_ladder or DEFAULT_MODEL_LADDER
+            self.model_ladder = model_ladder or self.model_ladder_override or DEFAULT_MODEL_LADDER
         else:
             self.api_provider = "none"
             self.api_key = None
             self.model_ladder = []
-
-        self.heuristic_engine = HeuristicRetentionEngine()
-        self.shap_service = get_shap_service()
-        self.agent = create_retention_agent()
 
     def _get_client(self) -> Optional[Any]:
         """
         Backward-compatible inspection method for UI connection badges.
         Returns the active model instance if an API key is present.
         """
+        self._refresh_keys()
         if self.force_fallback or not self.api_key or self.api_key.startswith("your_"):
             return None
         return self._build_model_instance(self.model_ladder[0]) if self.model_ladder else None
@@ -201,6 +271,7 @@ class AgentService:
         if diagnostic is None:
             diagnostic = self.shap_service.explain_customer(customer)
 
+        self._refresh_keys()
         if self.force_fallback or not self.api_key or self.api_key.startswith("your_"):
             logger.info("API Key not set, invalid, or offline mode forced. Using HeuristicRetentionEngine.")
             return self.heuristic_engine.generate_plan(customer, diagnostic)

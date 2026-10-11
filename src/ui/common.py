@@ -33,6 +33,11 @@ def render_sidebar():
     _, _, agent_svc = load_services()
     personas_data = load_personas()
 
+    # Synchronize session-stored user API key if provided
+    custom_key = st.session_state.get("custom_user_api_key")
+    if custom_key:
+        agent_svc._refresh_keys(api_key=custom_key)
+
     with st.sidebar:
         st.title("📡 Telco Copilot")
         st.caption("Intelligent Customer Retention Platform")
@@ -48,6 +53,55 @@ def render_sidebar():
                 st.success("🟢 OpenRouter Agent Online")
         else:
             st.warning("🟡 Heuristic Fallback Active")
+
+        # LLM Key Configuration expander
+        with st.expander("🔑 Konfigurasi API Key LLM", expanded=(client_test is None)):
+            if client_test is not None:
+                st.caption(
+                    f"Provider aktif: **{agent_svc.api_provider.upper()}** "
+                    f"(`{agent_svc.model_ladder[0]}`)"
+                )
+            else:
+                st.caption(
+                    "API Key belum terdeteksi di server/secrets. "
+                    "Anda dapat memasukkan API Key di bawah untuk mengaktifkan AI Retensi:"
+                )
+
+            current_session_key = st.session_state.get("custom_user_api_key", "")
+            user_input_key = st.text_input(
+                "Gemini / OpenRouter API Key:",
+                value=current_session_key,
+                type="password",
+                key="ui_key_input",
+                placeholder="AQ... / AIza... / sk-or-...",
+                help="Key disimpan secara aman hanya di memori sesi browser Anda.",
+            )
+
+            col_btn1, col_btn2 = st.columns([1, 1])
+            with col_btn1:
+                if st.button("Aktifkan AI", use_container_width=True, type="primary"):
+                    if user_input_key.strip():
+                        st.session_state["custom_user_api_key"] = user_input_key.strip()
+                        agent_svc._refresh_keys(api_key=user_input_key.strip())
+                        st.rerun()
+            with col_btn2:
+                if st.button("Reset Key", use_container_width=True):
+                    st.session_state.pop("custom_user_api_key", None)
+                    agent_svc._refresh_keys()
+                    st.rerun()
+
+            if client_test is None:
+                st.markdown(
+                    """
+                    ---
+                    💡 **Untuk Admin (Streamlit Cloud):**
+                    Buka dashboard di [share.streamlit.io](https://share.streamlit.io) > **App Settings > Secrets**, tambahkan:
+                    ```toml
+                    GEMINI_API_KEY = "kunci_api_anda"
+                    ```
+                    Lalu save untuk mengaktifkan AI permanen tanpa input manual.
+                    """
+                )
 
         st.divider()
 
