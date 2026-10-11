@@ -107,18 +107,44 @@ Dibentuk 4 variabel baru melalui custom transformer `TelcoFeatureEngineer`:
 
 ## 6. Struktur File Repository
 ```
-├── README.md                              <- Dokumentasi utama proyek
-├── requirements.txt                       <- Daftar dependensi Python proyek
-├── .gitignore                             <- Konfigurasi git ignore (termasuk draf notebook)
-├── data/
-│   └── WA_Fn-UseC_-Telco-Customer-Churn.csv <- Dataset mentah lokal
+├── app.py                                 <- Entrypoint aplikasi web Streamlit (Modern st.navigation)
+├── pages/
+│   ├── 1_profiler.py                      <- Profil risiko pelanggan tunggal, What-If sandbox, & AI Copilot
+│   ├── 2_batch_queue.py                   <- Skoring batch CSV & antrean kerja prioritas (Expected Loss)
+│   └── 3_governance.py                    <- Tata kelola model, SHAP global, & kalibrasi threshold finansial
+├── src/
+│   ├── transformers.py                    <- Custom Scikit-Learn transformer (TelcoFeatureEngineer)
+│   ├── services/
+│   │   ├── agent_service.py               <- PydanticAI Agent Orchestrator (Multi-Provider ladder & failover)
+│   │   ├── agent_tools.py                 <- Deterministic tools (What-if ML simulation & ROI calculation)
+│   │   ├── fallback_engine.py             <- Zero-downtime offline heuristic retention engine
+│   │   ├── inference_service.py           <- LightGBM pipeline serving & batch inference
+│   │   ├── schemas.py                     <- Validasi skema input & output Pydantic v2 dengan guardrails
+│   │   └── shap_service.py                <- TreeSHAP explainer (lokal waterfall & narasi bisnis)
+│   └── ui/
+│       └── common.py                      <- Komponen UI bersama, status ML badges, & API key configurator
+├── tests/
+│   ├── benchmark_personas.json            <- Kumpulan persona pelanggan sintetis untuk benchmarking
+│   ├── test_agent_harness.py              <- Pengujian guardrails anggaran, personas, & offline fallback
+│   ├── test_agent_tools.py                <- Pengujian deterministik alat inferensi & kalkulasi ROI
+│   ├── test_inference_service.py          <- Pengujian validasi skema Pydantic & prediksi pipeline
+│   ├── test_shap_service.py               <- Pengujian TreeSHAP waterfall & ekstraksi faktor risiko
+│   └── test_streamlit_app.py              <- Pengujian otomasi UI via Streamlit AppTest (Navigation & UX)
 ├── docs/
-│   └── methodologi.md                     <- Dokumentasi teknis mendalam (arsitektur, data leakage audit)
+│   ├── methodologi.md                     <- Dokumentasi teknis mendalam (arsitektur, data leakage audit)
+│   ├── phase2_system_design_and_architecture.md <- Desain arsitektur sistem Fase 2
+│   ├── agentic_ai_implementation_plan.md  <- Rencana implementasi & evaluasi PydanticAI
+│   └── agentic_rag_upgrade_plan.md        <- Roadmap upgrade Agentic RAG
 ├── models/
 │   └── telco_churn_lgbm_pipeline.joblib   <- Artefak model pipeline terenkapsulasi siap deployment
-└── notebooks/
-    ├── telco_churn_advanced_pipeline.ipynb <- Notebook utama (Custom Pipeline, Optuna, Profit Threshold, SHAP)
-    └── telco_churn_pycaret_baseline.ipynb  <- Notebook eksperimen AutoML (PyCaret Benchmark & Tuning)
+├── data/
+│   └── WA_Fn-UseC_-Telco-Customer-Churn.csv <- Dataset mentah lokal IBM Telco
+├── notebooks/
+│   ├── telco_churn_advanced_pipeline.ipynb <- Notebook utama (Custom Pipeline, Optuna, Profit Threshold, SHAP)
+│   └── telco_churn_pycaret_baseline.ipynb  <- Notebook eksperimen AutoML (PyCaret Benchmark & Tuning)
+├── pyproject.toml                         <- Konfigurasi dependensi modern (UV / PEP 621)
+├── requirements.txt                       <- Daftar dependensi pip kompatibel
+└── README.md                              <- Dokumentasi utama proyek
 ```
 
 ---
@@ -157,28 +183,40 @@ print(f"Target Retensi: {'Ya' if is_churn_risk else 'Tidak'}")
 
 ## 8. Phase 2: Agentic AI Intelligent Retention Platform
 
-Fase 2 mentransformasi pipeline prediktif menjadi platform retensi presisi yang interaktif dengan *business guardrails* dan *zero-downtime fallback*:
+Fase 2 mentransformasi pipeline prediktif menjadi platform retensi presisi yang interaktif dengan *business guardrails*, *multi-provider resilience*, dan *zero-downtime fallback*:
 
 ### Fitur Utama:
 1. **Interactive Single Customer Profiler:** Visualisasi gauge probabilitas vs ambang batas $\tau^* = 0.39$ secara real-time.
 2. **Explainable AI (TreeSHAP):** Penguraian faktor lokal pendorong risiko (*risk drivers*) dan penahan (*retention anchors*) ke dalam narasi bisnis manusiawi.
 3. **What-If Counterfactual Sandbox:** Eksperimen langsung perubahan fitur (misal: migrasi kontrak 1 tahun atau penambahan proteksi) dengan estimasi penurunan risiko instan.
-4. **Agentic AI Retention Copilot:** Orkestrasi LLM via OpenRouter dengan *deterministic tool-calling loop* untuk merumuskan penawaran retensi presisi, batasan pagu biaya ($\le \$20.00$), dan naskah komunikasi empati.
-5. **Zero-Downtime Fallback:** `HeuristicRetentionEngine` lokal otomatis mengambil alih secara transparan saat API rate limit (429) atau koneksi offline.
-6. **Batch Work Queue Table:** Analisis batch CSV pelanggan dan pengurutan prioritas otomatis berdasarkan *Expected Loss* ($P(\text{churn}) \times \text{CLV}$).
+4. **Agentic AI Retention Copilot (PydanticAI):** Orkestrasi LLM multi-tier dengan *deterministic tool-calling loop* untuk merumuskan penawaran retensi presisi:
+   - **Primary Engine:** Google Gemini aktif (`gemini-3.5-flash-lite`, `gemini-3.5-flash`).
+   - **Secondary Failover:** OpenRouter API (`openrouter/free`).
+   - **Guardrails Ketat:** Pagu biaya penawaran wajib $\le \$20.00$ per pelanggan.
+5. **Zero-Downtime Deterministic Fallback:** `HeuristicRetentionEngine` lokal otomatis mengambil alih secara transparan saat API limit (429/503) atau ketiadaan API key.
+6. **In-App API Key Configurator:** Pengaturan API Key fleksibel melalui `.env`, Streamlit Cloud Secrets (`st.secrets`), maupun input langsung via sidebar pada sesi browser.
+7. **Batch Work Queue Table:** Analisis batch CSV pelanggan dan pengurutan prioritas otomatis berdasarkan *Expected Loss* ($P(\text{churn}) \times \text{CLV}$).
+8. **Executive Governance & Calibration:** Evaluasi kurva ROC-AUC holdout, kalibrasi ambang batas finansial, dan audit *bias-variance*.
 
 ### Menjalankan Aplikasi Web (Streamlit):
 ```bash
-# 1. Pastikan virtual environment aktif
-.\.venv\Scripts\activate
+# Menggunakan uv (Rekomendasi - Cepat & Terisolasi)
+uv run streamlit run app.py
 
-# 2. Jalankan dashboard Streamlit
+# Atau menggunakan pip / virtual environment aktif
+.\.venv\Scripts\activate
 streamlit run app.py
 ```
 
+### Konfigurasi API Key (Opsional untuk AI Copilot):
+Aplikasi tetap berjalan normal (100% fungsional) menggunakan Heuristic Engine tanpa API Key. Untuk mengaktifkan mode AI Copilot:
+- **Lokal:** Tambahkan `GEMINI_API_KEY="kunci_anda"` pada file `.env`.
+- **Streamlit Community Cloud:** Tambahkan `GEMINI_API_KEY = "kunci_anda"` pada menu **App Settings > Secrets**.
+- **Via Antarmuka Web:** Masukkan kunci pada expander **"🔑 Konfigurasi API Key LLM"** di sidebar.
+
 ### Menjalankan Automated Test Harness:
 ```bash
-# Jalankan seluruh test suite (14 test cases)
-pytest -v
+# Menjalankan seluruh test suite (21 automated test cases)
+uv run pytest -v
 ```
 

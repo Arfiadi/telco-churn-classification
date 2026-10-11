@@ -1,8 +1,7 @@
 # System Design & Architecture Document: Telco Churn Intelligent Retention Platform (Phase 2)
 
-**Author:** Antigravity AI & Arfiadi  
 **Date:** October 2026  
-**Status:** Approved Architecture Plan  
+**Status:** Implemented & Fully Operational (Production-Ready)  
 **Target Project:** `Telco Churn Classification & Decisioning`  
 
 ---
@@ -38,14 +37,14 @@ Pada **Fase 1**, repositori telah distandarisasi ke tingkat kesiapan produksi (*
 * **NFR-1 (Latency):**
   * Inferensi pipeline ML: $\le 100 \text{ ms}$ per inferensi tunggal.
   * Komputasi SHAP lokal: $\le 250 \text{ ms}$ menggunakan pra-inisialisasi `TreeExplainer`.
-  * Generasi respons LLM Copilot: Menggunakan antarmuka streaming (*token streaming*) dengan waktu latensi awal (TTFT) $\le 1.5 \text{ detik}$.
+  * Generasi respons LLM Copilot: Menggunakan model latensi rendah (`gemini-3.5-flash-lite`) dengan waktu respon awal $\le 1.5 \text{ detik}$.
 * **NFR-2 (Resource Constraints & Local-First):**
-  * Ringan CPU dan RAM-constrained: Seluruh komputasi inferensi dan SHAP harus berjalan efisien di CPU tanpa ketergantungan GPU (CUDA).
+  * Ringan CPU dan RAM-constrained: Seluruh komputasi inferensi dan SHAP berjalan efisien di CPU tanpa ketergantungan GPU (CUDA).
   * Penggunaan memori dasar aplikasi web: $\le 500 \text{ MB}$.
 * **NFR-3 (Data Safety & Privacy):**
-  * Stateless inference: Data pelanggan tidak boleh disimpan permanen di server pihak ketiga tanpa enkripsi.
+  * Stateless inference: Data pelanggan tidak disimpan permanen di server pihak ketiga tanpa enkripsi.
   * PII masking: ID pelanggan dan data sensitif di-anonymize sebelum dikirim ke context window LLM.
-  * API Keys (OpenAI / Gemini / Anthropic / OpenRouter) wajib dimuat via environment variable (`.env`), dilarang keras di-hardcode dalam kode.
+  * API Keys (Gemini / OpenRouter) dimuat aman via `.env`, Streamlit Cloud Secrets (`st.secrets`), atau session browser (in-app UI), dilarang di-hardcode.
 * **NFR-4 (Modularity & Maintainability):**
   * Arsitektur modular memisahkan *Engine Core* (`src/`), *API/Service Layer*, dan *Presentation Layer*.
 
@@ -57,18 +56,19 @@ Arsitektur sistem dirancang dengan pendekatan **Clean Architecture** berlapis:
 
 ```mermaid
 graph TD
-    subgraph UI ["Presentation Layer (Web Interface)"]
-        A1["Interactive Simulator<br/>(Feature Sliders & Inputs)"]
-        A2["XAI Visualizer<br/>(SHAP Waterfall & Risk Gauges)"]
-        A3["Batch Upload & Queue<br/>(Data Table & Sorting)"]
-        A4["Retention Copilot Chat<br/>(Streaming Action Plan)"]
+    subgraph UI ["Presentation Layer (Streamlit Pages)"]
+        A1["1_profiler.py<br/>(Interactive Simulator & Sandbox)"]
+        A2["1_profiler.py<br/>(SHAP Waterfall & Risk Gauges)"]
+        A3["2_batch_queue.py<br/>(Batch Upload & Priority Queue)"]
+        A4["1_profiler.py<br/>(AI Retention Copilot Card)"]
     end
 
-    subgraph Service ["Application & Business Logic Layer"]
+    subgraph Service ["Application & Business Logic Layer (src/services/)"]
         B1["Inference Service<br/>(Validation & Pipeline Runner)"]
         B2["Decision & Profit Engine<br/>(Cost-Benefit Matrix & Threshold Tau)"]
-        B3["XAI Service<br/>(TreeSHAP Pre-calculated Explainer)"]
-        B4["Agentic Retention Engine<br/>(Prompt Templates & Guardrails)"]
+        B3["XAI Service (TreeSHAP)<br/>(Local Waterfall & Explanations)"]
+        B4["Agent Service (PydanticAI)<br/>(Multi-Provider Ladder & Guardrails)"]
+        B5["Heuristic Fallback Engine<br/>(Zero-Downtime Deterministic Plan)"]
     end
 
     subgraph Core ["Machine Learning Core (src/)"]
@@ -77,8 +77,9 @@ graph TD
         C3["Metadata & Config<br/>Threshold: 0.39, Feature Specs"]
     end
 
-    subgraph External ["External Services & LLM Provider"]
-        D1["OpenRouter API<br/>(Llama 3.3 / Gemini 2.0 Free)"]
+    subgraph External ["Multi-Tier LLM Gateway"]
+        D1["Primary: Google Gemini<br/>(gemini-3.5-flash-lite)"]
+        D2["Secondary: OpenRouter<br/>(openrouter/free)"]
     end
 
     A1 -->|Raw Input Payload| B1
@@ -95,8 +96,9 @@ graph TD
     B3 --> C2
     B3 --> A2
 
-    B4 -->|Agentic Tool Calling + RunContext| D1
-    D1 -->|Structured Validation (PydanticAI)| B4
+    B4 -->|Primary Run| D1
+    D1 -.->|503/404 Failover| D2
+    D2 -.->|Offline/No Key Fallback| B5
     B4 --> A4
 ```
 
@@ -105,7 +107,7 @@ graph TD
 ## 4. Detailed Component Design
 
 ### 4.1. Core Serving Pipeline (`InferenceService`)
-* **Input Validation:** Skema Pydantic (`CustomerInputSchema`) memvalidasi seluruh 19 fitur mentah (tipe data, rentang nilai `tenure` $[0, 72]$, `MonthlyCharges` $[18, 120]$, dan nilai kategorial valid).
+* **Input Validation:** Skema Pydantic (`CustomerProfile`) memvalidasi seluruh 19 fitur mentah (tipe data, rentang nilai `tenure` $[0, 72]$, `MonthlyCharges` $[18, 120]$, dan nilai kategorial valid).
 * **Pipeline Execution:** Model dimuat sekali saat startup (`joblib.load('models/telco_churn_lgbm_pipeline.joblib')`).
 * **Output Payload:**
   ```json
@@ -134,9 +136,9 @@ sequenceDiagram
     participant UI as Dashboard Web
     participant Agent as PydanticAI Retention Agent
     participant ML as ML Tools (simulate_churn, calc_roi)
-    participant LLM as OpenRouter (Llama 3.3 Free)
+    participant LLM as Multi-Tier LLM (Gemini / OpenRouter)
 
-    CS->>UI: Klik "Generate Action Plan" untuk Pelanggan X
+    CS->>UI: Klik "Buat rencana retensi strategis" untuk Pelanggan X
     UI->>Agent: RunContext (Profil + SHAP Drivers + Unit Economics)
     Agent->>LLM: System Prompt + Ketersediaan Tools
     LLM-->>Agent: Request Tool Call: simulate_churn("One year")
@@ -151,23 +153,24 @@ sequenceDiagram
 1. **Financial Rule:** Biaya insentif atau voucher tidak boleh melebihi margin penghematan ($C \le \$20$).
 2. **Contextual Target:** Penawaran harus secara spesifik menargetkan top SHAP driver pelanggan (contoh: jika churn dipicu oleh mahalnya tagihan *Fiber Optic*, tawarkan bundling *Security* gratis selama 3 bulan atau diskon tagihan flat $\$10$ dengan komitmen kontrak 1 tahun).
 3. **Structured Response Format:**
-   * **Root Cause Summary:** 2 kalimat penjelasan mengapa pelanggan ini ingin berhenti berlangganan.
+   * **Root Cause Summary:** Penjelasan akar masalah pelanggan ingin berhenti berlangganan.
    * **Recommended Retention Bundle:** Nama program, rincian benefit, estimasi biaya program.
-   * **Custom Outreach Pitch:** Draf teks komunikasi (WhatsApp / Email / Telepon) dengan nada empati dan persuasif.
-   * **Projected Probability After Intervention:** Estimasi penurunan churn jika pelanggan menerima tawaran.
+   * **Custom Outreach Pitch:** Naskah komunikasi (WhatsApp / Email / Telepon) ramah dan personal.
+   * **Projected Probability After Intervention:** Estimasi penurunan churn setelah intervensi.
 
 ---
 
 ## 5. Technology Stack & Framework Selection
 
-Berdasarkan analisis kebutuhan, batasan biaya (100% Free), dan prinsip *Clean Architecture*, berikut adalah *Tech Stack* final yang disepakati untuk Fase 2:
+Berdasarkan analisis kebutuhan, keandalan produksi, dan prinsip *Clean Architecture*, berikut adalah *Tech Stack* final:
 
 | Layer | Teknologi | Alasan Pemilihan |
 | :--- | :--- | :--- |
-| **Presentation (UI)** | **Streamlit** | Sangat cepat dikembangkan (1-2 hari), render native untuk Matplotlib/SHAP, ringan di RAM/CPU, state management sederhana (`st.session_state`). |
+| **Presentation (UI)** | **Streamlit (Modern 2026)** | Multi-page modern dengan `st.navigation`, `@st.fragment` untuk partial rerun What-If sandbox, responsif, dan ringan di RAM/CPU. |
 | **ML Inference** | **LightGBM + Scikit-Learn** | Berjalan di CPU murni, latensi < 100ms, terenkapsulasi secara modular di `src/transformers.py`. |
-| **Agentic Framework** | **PydanticAI** | Sangat ringan, type-safe, mendukung *Dependency Injection* (`RunContext`), dan *Native Tool Calling* tanpa overhead abstraksi seperti LangChain/LlamaIndex. |
-| **LLM Gateway** | **OpenRouter API** | Gateway API gratis (tanpa kartu kredit) ke model open-source/closed-source kelas atas (Llama 3.3 70B, Gemini 2.0 Flash) via endpoint berstandar OpenAI. |
+| **Agentic Framework** | **PydanticAI** | Type-safe, native tool calling dengan `@agent.tool`, dependency injection via `RunContext`, dan validasi skema output `RetentionPlan`. |
+| **LLM Gateway** | **Google Gemini & OpenRouter** | **Primer:** Google Gemini 3.5 Flash Lite (kecepatan tinggi, akurat).<br/>**Sekunder:** OpenRouter API (`openrouter/free`). |
+| **Fail-Safe Layer** | **HeuristicRetentionEngine** | Engine aturan deterministik offline lokal untuk garansi zero-downtime saat tanpa koneksi/API key. |
 
 ### Rekomendasi Arsitektur: **Hybrid Modular Design**
 1. **Core Logic Terpisah di `src/`:** Seluruh logika bisnis, inferensi, kalkulasi profit, dan pembuatan prompt (PydanticAI agent) ditaruh di dalam modul `src/services/` sehingga **100% agnostic terhadap UI**.

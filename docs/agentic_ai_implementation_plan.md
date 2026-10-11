@@ -2,8 +2,8 @@
 
 **Project:** Telco Customer Churn Intelligent Retention Platform (Phase 2)  
 **Author:** Antigravity AI & Arfiadi  
-**Status:** Approved Technical Implementation Plan  
-**Target Architecture:** PydanticAI + OpenRouter (Free Tier) + Scikit-Learn/LightGBM Tool Calling  
+**Status:** Implemented & Verified (21/21 Automated Tests Passing)  
+**Target Architecture:** PydanticAI (Google Gemini + OpenRouter Failover) + Scikit-Learn/LightGBM Tool Calling  
 **Language Environment:** Python 3.10+ | Scikit-Learn | Pydantic v2 | PydanticAI | Streamlit  
 
 ---
@@ -337,44 +337,41 @@ d:\ARFI\Kuliah\Semester 3\Machine learning\Tugas\Praktikum\Tugas 8\
 ## 9. Step-by-Step Execution Checklist & Milestones
 
 ### Milestone 1: Environment & Dependency Setup
-* [ ] Perbarui `requirements.txt` dengan `pydantic>=2.5.0`, `pydantic-ai>=0.0.14` (atau `openai>=1.10.0` jika menggunakan client OpenAI kompatibel untuk OpenRouter), `streamlit>=1.30.0`, `python-dotenv>=1.0.0`.
-* [ ] Buat file `.env.example` dengan format:
-  ```env
-  OPENROUTER_API_KEY=your_free_openrouter_api_key_here
-  OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct:free
-  ```
+* [x] Perbarui dependensi proyek dengan `pydantic>=2.5.0`, `pydantic-ai>=0.0.14`, `streamlit>=1.30.0`, `python-dotenv>=1.0.0` (terenkapsulasi di `pyproject.toml` & `requirements.txt`).
+* [x] Buat file `.env.example` dengan format API Key Google Gemini & OpenRouter.
 
 ### Milestone 2: Foundation Service Layer (`src/services/`)
-* [ ] Implementasikan `src/services/schemas.py` (Semua kontrak Pydantic).
-* [ ] Implementasikan `src/services/inference_service.py` (Memuat pipeline model, memvalidasi input, menghitung profit matrix $\tau^* = 0.39$).
-* [ ] Implementasikan `src/services/shap_service.py` (Memuat TreeExplainer dari step classifier, mengembalikan top 3 risk drivers dan top 3 protective factors).
-* [ ] Implementasikan `src/services/agent_tools.py` (Fungsi simulasi what-if pipeline dan kalkulator ROI unit economics).
-* [ ] Implementasikan `src/services/fallback_engine.py` (Logika rule-based lokal untuk mode offline/kuota habis).
-* [ ] Implementasikan `src/services/agent_service.py` (Orkestrasi PydanticAI / OpenRouter client dengan tool calling dan guardrails).
+* [x] Implementasikan `src/services/schemas.py` (Semua kontrak Pydantic).
+* [x] Implementasikan `src/services/inference_service.py` (Memuat pipeline model, memvalidasi input, menghitung profit matrix $\tau^* = 0.39$).
+* [x] Implementasikan `src/services/shap_service.py` (Memuat TreeExplainer dari step classifier, mengembalikan top 3 risk drivers dan top 3 protective factors).
+* [x] Implementasikan `src/services/agent_tools.py` (Fungsi simulasi what-if pipeline dan kalkulator ROI unit economics).
+* [x] Implementasikan `src/services/fallback_engine.py` (Logika rule-based lokal untuk mode offline/kuota habis).
+* [x] Implementasikan `src/services/agent_service.py` (Orkestrasi PydanticAI Agent dengan tool calling, model ladder Gemini 3.5 & OpenRouter failover, serta guardrails).
 
 ### Milestone 3: Test Harness & Validation
-* [ ] Buat dataset golden persona di `tests/benchmark_personas.json`.
-* [ ] Tulis dan jalankan test suite di `tests/test_agent_harness.py`.
-* [ ] Verifikasi bahwa seluruh 5 persona menghasilkan `RetentionPlan` valid dan mematuhi $C \le \$20$.
-* [ ] Verifikasi mode fallback berfungsi sempurna saat API key dimatikan.
+* [x] Buat dataset golden persona di `tests/benchmark_personas.json`.
+* [x] Tulis dan jalankan test suite di `tests/test_agent_harness.py`.
+* [x] Verifikasi bahwa seluruh 5 persona menghasilkan `RetentionPlan` valid dan mematuhi $C \le \$20$.
+* [x] Verifikasi mode fallback berfungsi sempurna saat API key dimatikan.
+* [x] Implementasikan test otomasi UI Streamlit via `tests/test_streamlit_app.py` (Total 21 test cases).
 
 ### Milestone 4: Streamlit Web UI Integration (`app.py`)
-* [ ] Bangun layout antarmuka dengan desain modern (Dark mode glassmorphism theme, metric cards, status badges).
-* [ ] **Tab 1: Single Customer Risk Profiler & Interactive What-If Sandbox**
+* [x] Bangun layout antarmuka dengan desain modern multi-page Streamlit (`st.navigation`, glassmorphism theme, metric cards, status badges).
+* [x] **Page 1: Single Customer Risk Profiler & Interactive What-If Sandbox (`pages/1_profiler.py`)**
   * Slider & dropdown untuk 19 parameter pelanggan.
   * Real-time gauge probabilitas churn vs ambang batas optimal $0.39$.
   * Visualisasi SHAP Waterfall interaktif.
-  * Tombol *"Generate Strategic Action Plan"* yang memicu Agent Copilot.
-* [ ] **Tab 2: Batch Analysis & Work Queue Priority Table**
+  * Tombol *"Buat rencana retensi strategis"* yang memicu Agent Copilot.
+* [x] **Page 2: Batch Analysis & Work Queue Priority Table (`pages/2_batch_queue.py`)**
   * Pengunggahan file CSV pelanggan.
   * Urutan prioritas antrean berdasarkan *Expected Loss* ($P(\text{churn}) \times \text{CLV}$).
-* [ ] **Tab 3: Executive Governance & Model Diagnostics**
+* [x] **Page 3: Executive Governance & Model Diagnostics (`pages/3_governance.py`)**
   * Tampilan metrik model (ROC-AUC $0.8447$, F1 $0.6279$, Net Savings $+\$13,540$).
   * Slider kalibrasi ambang batas $\tau$ dinamis.
 
 ### Milestone 5: Verification & Documentation
-* [ ] Jalankan end-to-end audit aplikasi secara lokal.
-* [ ] Dokumentasikan cara menjalankan sistem dan instruksi mendapatkan API key OpenRouter gratis di `README.md`.
+* [x] Jalankan end-to-end audit aplikasi secara lokal dan live deployment.
+* [x] Dokumentasikan cara menjalankan sistem, struktur repository, dan konfigurasi API key di `README.md`.
 
 ---
 
